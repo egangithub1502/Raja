@@ -1,0 +1,59 @@
+name: Auto Merge
+
+on:
+  pull_request:
+    types: [review_requested, reviewed]
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install GitHub CLI
+      run: |
+        sudo apt-get update
+        sudo apt-get install gh
+
+    - name: Authenticate GitHub CLI
+      run: echo "${{ secrets.JEGAN }}" | gh auth login --with-token
+
+    - name: Wait for pull request approval and check assignment
+      id: wait_for_approval_and_check_assignment
+      run: |
+        pr_number=${{ github.event.pull_request.number }}
+        target_user="egangithub1502"
+        timeout=600  # Time to wait in seconds (10 minutes)
+        interval=10  # Interval between checks in seconds
+        elapsed=0
+
+        echo "Waiting for pull request approval and check assignment..."
+
+        while [ $elapsed -lt $timeout ]; do
+          review_status=$(gh pr view $pr_number --json reviews --jq '.reviews[] | select(.state == "APPROVED")' || echo "")
+          assignees=$(gh pr view $pr_number --json assignees --jq '.assignees[].login' || echo "")
+
+          echo "Review Status: $review_status"
+          echo "Assignees: $assignees"
+
+          if [ -n "$review_status" ] && echo "$assignees" | grep -q "$target_user"; then
+            echo "Pull request has been approved and assigned to $target_user."
+            exit 0
+          fi
+
+          echo "Waiting for approval and assignment..."
+          sleep $interval
+          elapsed=$((elapsed + interval))
+        done
+
+        echo "Timeout reached. No approval or incorrect assignment."
+        exit 1
+
+    - name: Merge pull request
+      if: success()
+      run: |
+        pr_number=${{ github.event.pull_request.number }}
+        echo "Attempting to merge pull request #$pr_number"
+        gh pr merge $pr_number --merge --admin
