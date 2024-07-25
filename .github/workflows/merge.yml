@@ -18,7 +18,7 @@ jobs:
         sudo apt-get install gh
 
     - name: Authenticate GitHub CLI
-      run: echo "${{ secrets.JEGAN }}" | gh auth login --with-token
+      run: echo "${{ secrets.JEGANTOKEN }}" | gh auth login --with-token
 
     - name: Wait for pull request approval and check assignment
       id: wait_for_approval_and_check_assignment
