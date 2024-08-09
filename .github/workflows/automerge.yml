@@ -26,11 +26,11 @@ jobs:
         run: |
           APP_ID="${{ secrets.APP_ID }}"
           PRIVATE_KEY="${{ secrets.PRIVATE_KEY }}"
-          
+          INSTALLATION_ID="53646830"  # Use the existing installation ID
+
           SCRIPT_DIR="$HOME/github-scripts"
           JWT_FILE="$SCRIPT_DIR/jwt_file.jwt"
           TOKEN_FILE="$SCRIPT_DIR/token_file"
-          INSTALLATION_ID_FILE="$SCRIPT_DIR/installation_id_file"
           
           mkdir -p "$SCRIPT_DIR"
           echo "$PRIVATE_KEY" > "$SCRIPT_DIR/private_key.pem"
@@ -46,36 +46,14 @@ jobs:
             echo "$jwt" > "$JWT_FILE"
           }
 
-          get_installation_id() {
-            local jwt
-            jwt=$(cat "$JWT_FILE")
-            local response
-            response=$(curl -s -X GET \
-              -H "Authorization: Bearer $jwt" \
-              -H "Accept: application/vnd.github+json" \
-              https://api.github.com/app/installations)
-            
-            echo "API Response: $response"
-            
-            local installation_id
-            installation_id=$(echo "$response" | jq -r '.[0].id')
-            if [[ -z "$installation_id" ]]; then
-              echo "Failed to retrieve installation ID."
-              exit 1
-            fi
-            echo "$installation_id" > "$INSTALLATION_ID_FILE"
-          }
-
           generate_access_token() {
-            local installation_id
-            installation_id=$(cat "$INSTALLATION_ID_FILE")
             local jwt
             jwt=$(cat "$JWT_FILE")
             local token_response
             token_response=$(curl -s -X POST \
               -H "Authorization: Bearer $jwt" \
               -H "Accept: application/vnd.github+json" \
-              https://api.github.com/app/installations/"$installation_id"/access_tokens)
+              https://api.github.com/app/installations/"$INSTALLATION_ID"/access_tokens)
             
             local token
             token=$(echo "$token_response" | jq -r '.token')
@@ -87,7 +65,6 @@ jobs:
           }
 
           generate_jwt
-          get_installation_id
           generate_access_token
           echo "token=$(cat "$TOKEN_FILE")" >> $GITHUB_ENV
 
