@@ -2,58 +2,187 @@ name: Auto Merge
 
 on:
   pull_request:
-    types: [review_requested, reviewed]
+    types:
+      - opened
+      - synchronize
+      - reopened
 
 jobs:
-  auto-merge:
+  generate-token:
     runs-on: ubuntu-latest
-
+    outputs:
+      token: ${{ steps.generate.outputs.token }}
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Generate GitHub App Token
+        id: generate
+        run: |
+          APP_ID="${{ secrets.APP_ID }}"
+          PRIVATE_KEY="${{ secrets.PRIVATE_KEY }}"
+          JWT_FILE="/home/runner/github-scripts/jwt_file.jwt"
+          TOKEN_FILE="/home/runner/github-scripts/token_file"
+          INSTALLATION_ID_FILE="/home/runner/github-scripts/installation_id_file"
 
-    - name: Install GitHub CLI
-      run: |
-        sudo apt-get update
-        sudo apt-get install gh
+          generate_jwt() {
+            local payload
+            payload=$(printf "{\"iat\":%d,\"exp\":%d,\"iss\":\"%s\"}" "$(date +%s)" "$(date +%s -d '+10 minutes')" "$APP_ID")
+            local jwt
+            jwt=$(echo -n "$payload" | openssl dgst -sha256 -sign <(echo -n "$PRIVATE_KEY") -binary | base64 | tr -d '\n')
+            echo "$jwt" > "$JWT_FILE"
+          }
 
-    - name: Authenticate GitHub CLI
-      run: echo "${{ secrets.JEGAN }}" | gh auth login --with-token
+          get_installation_id() {
+            local jwt
+            jwt=$(cat "$JWT_FILE")
+            local response
+            response=$(curl -s -X GET \
+              -H "Authorization: Bearer $jwt" \
+              -H "Accept: application/vnd.github+json" \
+              https://api.github.com/app/installations)
+            echo "$response" | jq -r '.[0].id' > "$INSTALLATION_ID_FILE"
+          }
 
-    - name: Wait for pull request approval and check assignment
-      id: wait_for_approval_and_check_assignment
-      run: |
-        pr_number=${{ github.event.pull_request.number }}
-        target_user="egangithub1502"
-        timeout=600  # Time to wait in seconds (10 minutes)
-        interval=10  # Interval between checks in seconds
-        elapsed=0
+          generate_access_token() {
+            local installation_id
+            installation_id=$(cat "$INSTALLATION_ID_FILE")
+            local jwt
+            jwt=$(cat "$JWT_FILE")
+            local token
+            token=$(curl -s -X POST \
+              -H "Authorization: Bearer $jwt" \
+              -H "Accept: application/vnd.github+json" \
+              https://api.github.com/app/installations/"$installation_id"/access_tokens | jq -r .token)
+            echo "$token" > "$TOKEN_FILE"
+          }
 
-        echo "Waiting for pull request approval and check assignment..."
+          generate_jwt
+          get_installation_id
+          generate_access_token
 
-        while [ $elapsed -lt $timeout ]; do
-          review_status=$(gh pr view $pr_number --json reviews --jq '.reviews[] | select(.state == "APPROVED")' || echo "")
-          assignees=$(gh pr view $pr_number --json assignees --jq '.assignees[].login' || echo "")
+          echo "token=$(cat "$TOKEN_FILE")" >> $GITHUB_ENV
 
-          echo "Review Status: $review_status"
-          echo "Assignees: $assignees"
+  check-conflicts:
+    runs-on: ubuntu-latest
+    needs: generate-token
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-          if [ -n "$review_status" ] && echo "$assignees" | grep -q "$target_user"; then
-            echo "Pull request has been approved and assigned to $target_user."
+      - name: Install GitHub CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install gh
+
+      - name: Authenticate GitHub CLI
+        run: 'echo "${{ needs.generate-token.outputs.token }}" | gh auth login --with-token'
+
+      - name: Check if pull request is closed
+        id: check_closed
+        run: |
+          pr_number=${{ github.event.pull_request.number }}
+          pr_state=$(gh pr view $pr_number --json state --jq '.state')
+          echo "Initial pull request state: $pr_state"
+          echo "::set-output name=pr_state::$pr_state"
+          if [ "$pr_state" == "closed" ]; then
+            echo "Pull request is closed. Exiting workflow."
             exit 0
           fi
 
-          echo "Waiting for approval and assignment..."
-          sleep $interval
-          elapsed=$((elapsed + interval))
-        done
+      - name: Check for merge conflicts
+        id: check_conflicts
+        run: |
+          pr_number=${{ github.event.pull_request.number }}
+          conflict_status=$(gh pr view $pr_number --json mergeable --jq '.mergeable')
+          echo "Mergeable state: $conflict_status"
+          if [ "$conflict_status" == "CONFLICTING" ]; then
+            echo "Merge conflict detected."
+            gh pr comment $pr_number --body "Your pull request has merge conflicts. Please resolve them before continuing."
+            exit 1
+          else
+            echo "No merge conflicts."
+            gh pr comment $pr_number --body "Your pull request has no merge conflicts."
+          fi
 
-        echo "Timeout reached. No approval or incorrect assignment."
-        exit 1
+  wait_for_approval_and_check_assignment:
+    runs-on: ubuntu-latest
+    needs: check-conflicts
+    if: needs.check-conflicts.outputs.pr_state != 'closed'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Merge pull request
-      if: success()
-      run: |
-        pr_number=${{ github.event.pull_request.number }}
-        echo "Attempting to merge pull request #$pr_number"
-        gh pr merge $pr_number --merge --admin
+      - name: Install GitHub CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install gh
+
+      - name: Authenticate GitHub CLI
+        run: 'echo "${{ needs.generate-token.outputs.token }}" | gh auth login --with-token'
+
+      - name: Wait for pull request approval and check assignment
+        id: wait_for_approval_and_check_assignment
+        run: |
+          pr_number=${{ github.event.pull_request.number }}
+          target_user="egangithub1502"
+          timeout=600  # Time to wait in seconds (10 minutes)
+          interval=10  # Interval between checks in seconds
+          elapsed=0
+          while [ $elapsed -lt $timeout ]; do
+            pr_state=$(gh pr view $pr_number --json state --jq '.state')
+            
+            echo "Pull request state: $pr_state"
+            if [ "$pr_state" == "closed" ]; then
+              echo "Pull request is closed. Exiting workflow."
+              exit 0
+            fi
+            review_status=$(gh pr view $pr_number --json reviews --jq '.reviews[] | select(.state == "APPROVED")' || echo "")
+            assignees=$(gh pr view $pr_number --json assignees --jq '.assignees[].login' || echo "")
+            
+            echo "Review status: $review_status"
+            echo "Assignees: $assignees"
+            if [ -n "$review_status" ] && echo "$assignees" | grep -q "$target_user"; then
+              echo "Pull request has been approved and assigned to $target_user."
+              
+              # Add the comment to the PR
+              comment_body="Code changes self review done\nReviewed API Security - NA\nReviewed API Response Time - NA\nReviewed API Response Size - NA\nReviewed the Technical Design Document - NA\nReviewed the Verification Document - NA\nReviewed Method Level Comments - NA\nReviewed the Test Cases - Y\nOptimized by Copilot - Y\nReviewed byCopilot - Y"
+              gh pr comment $pr_number --body "$comment_body"
+              exit 0
+            fi
+            echo "Waiting for approval and assignment..."
+            sleep $interval
+            elapsed=$((elapsed + interval))
+          done
+          echo "Timeout reached. No approval or incorrect assignment."
+          exit 1
+
+  merge_pull_request:
+    runs-on: ubuntu-latest
+    needs: wait_for_approval_and_check_assignment
+    if: needs.wait_for_approval_and_check_assignment.outputs.pr_state != 'closed'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install GitHub CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install gh
+
+      - name: Authenticate GitHub CLI
+        run: 'echo "${{ needs.generate-token.outputs.token }}" | gh auth login --with-token'
+
+      - name: Check if pull request is closed
+        id: check_closed_again
+        run: |
+          pr_number=${{ github.event.pull_request.number }}
+          pr_state=$(gh pr view $pr_number --json state --jq '.state')
+          echo "Pull request state before merge: $pr_state"
+          if [ "$pr_state" == "closed" ]; then
+            echo "Pull request is closed. Exiting workflow."
+            exit 0
+          fi
+
+      - name: Merge pull request
+        if: success()
+        run: |
+          pr_number=${{ github.event.pull_request.number }}
+          gh pr merge $pr_number --merge
