@@ -19,16 +19,16 @@ jobs:
       - name: Install GitHub CLI
         run: |
           sudo apt-get update
-          sudo apt-get install gh
-      
+          sudo apt-get install gh jq
+
       - name: Generate GitHub App Token
         id: generate
         run: |
           APP_ID="${{ secrets.APP_ID }}"
           PRIVATE_KEY="${{ secrets.PRIVATE_KEY }}"
-          
+
           # Define paths for JWT, token, and installation ID files
-          SCRIPT_DIR="/home/runner/github-scripts"
+          SCRIPT_DIR="$HOME/github-scripts"
           JWT_FILE="$SCRIPT_DIR/jwt_file.jwt"
           TOKEN_FILE="$SCRIPT_DIR/token_file"
           INSTALLATION_ID_FILE="$SCRIPT_DIR/installation_id_file"
@@ -40,7 +40,7 @@ jobs:
             local payload
             payload=$(printf "{\"iat\":%d,\"exp\":%d,\"iss\":\"%s\"}" "$(date +%s)" "$(date +%s -d '+10 minutes')" "$APP_ID")
             local jwt
-            jwt=$(echo -n "$payload" | openssl dgst -sha256 -sign <(echo -n "$PRIVATE_KEY") -binary | base64 | tr -d '\n')
+            jwt=$(echo -n "$payload" | openssl dgst -sha256 -sign <(echo -n "$PRIVATE_KEY") -binary | base64 | tr -d '\n' | sed 's/+$//')
             echo "$jwt" > "$JWT_FILE"
           }
 
@@ -94,7 +94,7 @@ jobs:
           echo "token=$(cat "$TOKEN_FILE")" >> $GITHUB_ENV
 
       - name: Authenticate GitHub CLI
-        run: gh auth login --with-token <<< "${{ steps.generate.outputs.token }}"
+        run: gh auth login --with-token <<< "${{ secrets.token }}"
 
       - name: Check if pull request is closed
         id: check_closed
@@ -132,7 +132,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Authenticate GitHub CLI
-        run: gh auth login --with-token <<< "${{ steps.generate.outputs.token }}"
+        run: gh auth login --with-token <<< "${{ secrets.token }}"
 
       - name: Wait for pull request approval and check assignment
         id: wait_for_approval_and_check_assignment
@@ -179,7 +179,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Authenticate GitHub CLI
-        run: gh auth login --with-token <<< "${{ steps.generate.outputs.token }}"
+        run: gh auth login --with-token <<< "${{ secrets.token }}"
 
       - name: Check if pull request is closed
         id: check_closed_again
