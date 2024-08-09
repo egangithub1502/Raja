@@ -16,16 +16,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Install GitHub CLI
+      - name: Install GitHub CLI and jq
         run: |
           sudo apt-get update
-          sudo apt-get install gh jq
+          sudo apt-get install -y gh jq
 
       - name: Generate GitHub App Token
         id: generate
         run: |
           APP_ID="${{ secrets.APP_ID }}"
           PRIVATE_KEY="${{ secrets.PRIVATE_KEY }}"
+          
           # Define paths for JWT, token, and installation ID files
           SCRIPT_DIR="$HOME/github-scripts"
           JWT_FILE="$SCRIPT_DIR/jwt_file.jwt"
@@ -34,13 +35,22 @@ jobs:
           
           # Ensure the script directory exists
           mkdir -p "$SCRIPT_DIR"
+
+          # Save the private key to a file
+          echo "$PRIVATE_KEY" > "$SCRIPT_DIR/private_key.pem"
+
           generate_jwt() {
             local payload
-            payload=$(printf "{\"iat\":%d,\"exp\":%d,\"iss\":\"%s\"}" "$(date +%s)" "$(date +%s -d '+10 minutes')" "$APP_ID")
+            payload=$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' "$(date +%s)" "$(date +%s -d '+10 minutes')" "$APP_ID")
+            echo "JWT Payload: $payload"
+            
             local jwt
-            jwt=$(echo -n "$payload" | openssl dgst -sha256 -sign <(echo -n "$PRIVATE_KEY") -binary | base64 | tr -d '\n' | sed 's/+$//')
+            jwt=$(echo -n "$payload" | openssl dgst -sha256 -sign "$SCRIPT_DIR/private_key.pem" -binary | base64 | tr -d '\n' | sed 's/+$//')
+            echo "Generated JWT: $jwt"
+
             echo "$jwt" > "$JWT_FILE"
           }
+
           get_installation_id() {
             local jwt
             jwt=$(cat "$JWT_FILE")
@@ -61,6 +71,7 @@ jobs:
             fi
             echo "$installation_id" > "$INSTALLATION_ID_FILE"
           }
+
           generate_access_token() {
             local installation_id
             installation_id=$(cat "$INSTALLATION_ID_FILE")
@@ -80,15 +91,17 @@ jobs:
             fi
             echo "$token" > "$TOKEN_FILE"
           }
+
           # Generate JWT, get installation ID, and generate access token
           generate_jwt
           get_installation_id
           generate_access_token
+
           # Export the token as an environment variable
           echo "token=$(cat "$TOKEN_FILE")" >> $GITHUB_ENV
 
       - name: Authenticate GitHub CLI
-        run: gh auth login --with-token <<< "${{ secrets.token }}"
+        run: gh auth login --with-token <<< "${{ env.token }}"
 
       - name: Check if pull request is closed
         id: check_closed
@@ -126,7 +139,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Authenticate GitHub CLI
-        run: gh auth login --with-token <<< "${{ secrets.token }}"
+        run: gh auth login --with-token <<< "${{ env.token }}"
 
       - name: Wait for pull request approval and check assignment
         id: wait_for_approval_and_check_assignment
@@ -173,7 +186,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Authenticate GitHub CLI
-        run: gh auth login --with-token <<< "${{ secrets.token }}"
+        run: gh auth login --with-token <<< "${{ env.token }}"
 
       - name: Check if pull request is closed
         id: check_closed_again
