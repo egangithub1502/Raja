@@ -26,7 +26,7 @@ jobs:
         run: |
           APP_ID="${{ secrets.APP_ID }}"
           PRIVATE_KEY="${{ secrets.PRIVATE_KEY }}"
-          INSTALLATION_ID="53646830"  # Use the existing installation ID
+          INSTALLATION_ID="53646830"
 
           SCRIPT_DIR="$HOME/github-scripts"
           JWT_FILE="$SCRIPT_DIR/jwt_file.jwt"
@@ -38,11 +38,8 @@ jobs:
           generate_jwt() {
             local payload
             payload=$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' "$(date +%s)" "$(date +%s -d '+10 minutes')" "$APP_ID")
-            echo "JWT Payload: $payload"
-            
             local jwt
             jwt=$(echo -n "$payload" | openssl dgst -sha256 -sign "$SCRIPT_DIR/private_key.pem" -binary | base64 | tr -d '\n' | sed 's/+$//')
-            echo "Generated JWT: $jwt"
             echo "$jwt" > "$JWT_FILE"
           }
 
@@ -66,10 +63,12 @@ jobs:
 
           generate_jwt
           generate_access_token
+
+          echo "Token: $(cat "$TOKEN_FILE")"  # Debug output
           echo "token=$(cat "$TOKEN_FILE")" >> $GITHUB_ENV
 
       - name: Authenticate GitHub CLI
-        run: gh auth login --with-token <<< "${{ env.token }}"
+        run: gh auth login --with-token < "$TOKEN_FILE"
 
       - name: Check if pull request is closed
         id: check_closed
@@ -107,7 +106,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Authenticate GitHub CLI
-        run: gh auth login --with-token <<< "${{ env.token }}"
+        run: gh auth login --with-token < "$TOKEN_FILE"
 
       - name: Wait for pull request approval and check assignment
         id: wait_for_approval_and_check_assignment
@@ -151,7 +150,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Authenticate GitHub CLI
-        run: gh auth login --with-token <<< "${{ env.token }}"
+        run: gh auth login --with-token < "$TOKEN_FILE"
 
       - name: Check if pull request is closed
         id: check_closed_again
