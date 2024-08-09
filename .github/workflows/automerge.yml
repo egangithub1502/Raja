@@ -56,7 +56,13 @@ jobs:
             # Print the API response for debugging
             echo "API Response: $response"
             
-            echo "$response" | jq -r '.[0].id' > "$INSTALLATION_ID_FILE"
+            local installation_id
+            installation_id=$(echo "$response" | jq -r '.[0].id')
+            if [[ -z "$installation_id" ]]; then
+              echo "Failed to retrieve installation ID."
+              exit 1
+            fi
+            echo "$installation_id" > "$INSTALLATION_ID_FILE"
           }
 
           generate_access_token() {
@@ -64,11 +70,18 @@ jobs:
             installation_id=$(cat "$INSTALLATION_ID_FILE")
             local jwt
             jwt=$(cat "$JWT_FILE")
-            local token
-            token=$(curl -s -X POST \
+            local token_response
+            token_response=$(curl -s -X POST \
               -H "Authorization: Bearer $jwt" \
               -H "Accept: application/vnd.github+json" \
-              https://api.github.com/app/installations/"$installation_id"/access_tokens | jq -r .token)
+              https://api.github.com/app/installations/"$installation_id"/access_tokens)
+            
+            local token
+            token=$(echo "$token_response" | jq -r '.token')
+            if [[ -z "$token" ]]; then
+              echo "Failed to generate access token."
+              exit 1
+            fi
             echo "$token" > "$TOKEN_FILE"
           }
 
