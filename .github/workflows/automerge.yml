@@ -10,18 +10,22 @@ on:
 jobs:
   generate-token:
     runs-on: ubuntu-latest
-    outputs:
-      token: ${{ steps.generate.outputs.token }}
     steps:
       - name: Generate GitHub App Token
         id: generate
         run: |
           APP_ID="${{ secrets.APP_ID }}"
           PRIVATE_KEY="${{ secrets.PRIVATE_KEY }}"
-          JWT_FILE="/home/runner/github-scripts/jwt_file.jwt"
-          TOKEN_FILE="/home/runner/github-scripts/token_file"
-          INSTALLATION_ID_FILE="/home/runner/github-scripts/installation_id_file"
-
+          
+          # Define paths for JWT, token, and installation ID files
+          SCRIPT_DIR="/home/runner/github-scripts"
+          JWT_FILE="$SCRIPT_DIR/jwt_file.jwt"
+          TOKEN_FILE="$SCRIPT_DIR/token_file"
+          INSTALLATION_ID_FILE="$SCRIPT_DIR/installation_id_file"
+          
+          # Ensure the script directory exists
+          mkdir -p "$SCRIPT_DIR"
+  
           generate_jwt() {
             local payload
             payload=$(printf "{\"iat\":%d,\"exp\":%d,\"iss\":\"%s\"}" "$(date +%s)" "$(date +%s -d '+10 minutes')" "$APP_ID")
@@ -29,7 +33,7 @@ jobs:
             jwt=$(echo -n "$payload" | openssl dgst -sha256 -sign <(echo -n "$PRIVATE_KEY") -binary | base64 | tr -d '\n')
             echo "$jwt" > "$JWT_FILE"
           }
-
+  
           get_installation_id() {
             local jwt
             jwt=$(cat "$JWT_FILE")
@@ -40,7 +44,7 @@ jobs:
               https://api.github.com/app/installations)
             echo "$response" | jq -r '.[0].id' > "$INSTALLATION_ID_FILE"
           }
-
+  
           generate_access_token() {
             local installation_id
             installation_id=$(cat "$INSTALLATION_ID_FILE")
@@ -53,16 +57,20 @@ jobs:
               https://api.github.com/app/installations/"$installation_id"/access_tokens | jq -r .token)
             echo "$token" > "$TOKEN_FILE"
           }
-
+  
+          # Generate JWT, get installation ID, and generate access token
           generate_jwt
           get_installation_id
           generate_access_token
-
+  
+          # Export the token as an environment variable
           echo "token=$(cat "$TOKEN_FILE")" >> $GITHUB_ENV
 
   check-conflicts:
     runs-on: ubuntu-latest
     needs: generate-token
+    outputs:
+      pr_state: '${{ steps.check_closed.outputs.pr_state }}'
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -73,7 +81,7 @@ jobs:
           sudo apt-get install gh
 
       - name: Authenticate GitHub CLI
-        run: 'echo "${{ needs.generate-token.outputs.token }}" | gh auth login --with-token'
+        run: 'echo "${{ env.token }}" | gh auth login --with-token'
 
       - name: Check if pull request is closed
         id: check_closed
@@ -100,8 +108,7 @@ jobs:
           else
             echo "No merge conflicts."
             gh pr comment $pr_number --body "Your pull request has no merge conflicts."
-          fi
-
+  
   wait_for_approval_and_check_assignment:
     runs-on: ubuntu-latest
     needs: check-conflicts
@@ -116,7 +123,7 @@ jobs:
           sudo apt-get install gh
 
       - name: Authenticate GitHub CLI
-        run: 'echo "${{ needs.generate-token.outputs.token }}" | gh auth login --with-token'
+        run: 'echo "${{ env.token }}" | gh auth login --with-token'
 
       - name: Wait for pull request approval and check assignment
         id: wait_for_approval_and_check_assignment
@@ -143,7 +150,7 @@ jobs:
               echo "Pull request has been approved and assigned to $target_user."
               
               # Add the comment to the PR
-              comment_body="Code changes self review done\nReviewed API Security - NA\nReviewed API Response Time - NA\nReviewed API Response Size - NA\nReviewed the Technical Design Document - NA\nReviewed the Verification Document - NA\nReviewed Method Level Comments - NA\nReviewed the Test Cases - Y\nOptimized by Copilot - Y\nReviewed byCopilot - Y"
+              comment_body="Code changes self review done\nReviewed API Security - NA\nReviewed API Response Time - NA\nReviewed API Response Size - NA\nReviewed the Technical Design Document - NA\nReviewed the Verification Document - NA\nReviewed Method Level Comments - NA\nReviewed the Test Cases - Y\nOptimized by Copilot - Y\nReviewed by Copilot - Y"
               gh pr comment $pr_number --body "$comment_body"
               exit 0
             fi
@@ -153,7 +160,7 @@ jobs:
           done
           echo "Timeout reached. No approval or incorrect assignment."
           exit 1
-
+  
   merge_pull_request:
     runs-on: ubuntu-latest
     needs: wait_for_approval_and_check_assignment
@@ -168,7 +175,7 @@ jobs:
           sudo apt-get install gh
 
       - name: Authenticate GitHub CLI
-        run: 'echo "${{ needs.generate-token.outputs.token }}" | gh auth login --with-token'
+        run: 'echo "${{ env.token }}" | gh auth login --with-token'
 
       - name: Check if pull request is closed
         id: check_closed_again
@@ -179,7 +186,6 @@ jobs:
           if [ "$pr_state" == "closed" ]; then
             echo "Pull request is closed. Exiting workflow."
             exit 0
-          fi
 
       - name: Merge pull request
         if: success()
