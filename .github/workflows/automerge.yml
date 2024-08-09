@@ -27,16 +27,12 @@ jobs:
           APP_ID="${{ secrets.APP_ID }}"
           PRIVATE_KEY="${{ secrets.PRIVATE_KEY }}"
           
-          # Define paths for JWT, token, and installation ID files
           SCRIPT_DIR="$HOME/github-scripts"
           JWT_FILE="$SCRIPT_DIR/jwt_file.jwt"
           TOKEN_FILE="$SCRIPT_DIR/token_file"
           INSTALLATION_ID_FILE="$SCRIPT_DIR/installation_id_file"
           
-          # Ensure the script directory exists
           mkdir -p "$SCRIPT_DIR"
-
-          # Save the private key to a file
           echo "$PRIVATE_KEY" > "$SCRIPT_DIR/private_key.pem"
 
           generate_jwt() {
@@ -47,7 +43,6 @@ jobs:
             local jwt
             jwt=$(echo -n "$payload" | openssl dgst -sha256 -sign "$SCRIPT_DIR/private_key.pem" -binary | base64 | tr -d '\n' | sed 's/+$//')
             echo "Generated JWT: $jwt"
-
             echo "$jwt" > "$JWT_FILE"
           }
 
@@ -60,7 +55,6 @@ jobs:
               -H "Accept: application/vnd.github+json" \
               https://api.github.com/app/installations)
             
-            # Print the API response for debugging
             echo "API Response: $response"
             
             local installation_id
@@ -92,12 +86,9 @@ jobs:
             echo "$token" > "$TOKEN_FILE"
           }
 
-          # Generate JWT, get installation ID, and generate access token
           generate_jwt
           get_installation_id
           generate_access_token
-
-          # Export the token as an environment variable
           echo "token=$(cat "$TOKEN_FILE")" >> $GITHUB_ENV
 
       - name: Authenticate GitHub CLI
@@ -128,7 +119,7 @@ jobs:
           else
             echo "No merge conflicts."
             gh pr comment $pr_number --body "Your pull request has no merge conflicts."
-          fi
+          }
 
   wait_for_approval_and_check_assignment:
     runs-on: ubuntu-latest
@@ -146,12 +137,11 @@ jobs:
         run: |
           pr_number=${{ github.event.pull_request.number }}
           target_user="egangithub1502"
-          timeout=600  # Time to wait in seconds (10 minutes)
-          interval=10  # Interval between checks in seconds
+          timeout=600
+          interval=10
           elapsed=0
           while [ $elapsed -lt $timeout ]; do
             pr_state=$(gh pr view $pr_number --json state --jq '.state')
-            
             echo "Pull request state: $pr_state"
             if [ "$pr_state" == "closed" ]; then
               echo "Pull request is closed. Exiting workflow."
@@ -164,8 +154,6 @@ jobs:
             echo "Assignees: $assignees"
             if [ -n "$review_status" ] && echo "$assignees" | grep -q "$target_user"; then
               echo "Pull request has been approved and assigned to $target_user."
-              
-              # Add the comment to the PR
               comment_body="Code changes self review done\nReviewed API Security - NA\nReviewed API Response Time - NA\nReviewed API Response Size - NA\nReviewed the Technical Design Document - NA\nReviewed the Verification Document - NA\nReviewed Method Level Comments - NA\nReviewed the Test Cases - Y\nOptimized by Copilot - Y\nReviewed by Copilot - Y"
               gh pr comment $pr_number --body "$comment_body"
               exit 0
