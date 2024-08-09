@@ -26,7 +26,6 @@ jobs:
         run: |
           APP_ID="${{ secrets.APP_ID }}"
           PRIVATE_KEY="${{ secrets.PRIVATE_KEY }}"
-
           # Define paths for JWT, token, and installation ID files
           SCRIPT_DIR="$HOME/github-scripts"
           JWT_FILE="$SCRIPT_DIR/jwt_file.jwt"
@@ -35,7 +34,6 @@ jobs:
           
           # Ensure the script directory exists
           mkdir -p "$SCRIPT_DIR"
-
           generate_jwt() {
             local payload
             payload=$(printf "{\"iat\":%d,\"exp\":%d,\"iss\":\"%s\"}" "$(date +%s)" "$(date +%s -d '+10 minutes')" "$APP_ID")
@@ -43,7 +41,6 @@ jobs:
             jwt=$(echo -n "$payload" | openssl dgst -sha256 -sign <(echo -n "$PRIVATE_KEY") -binary | base64 | tr -d '\n' | sed 's/+$//')
             echo "$jwt" > "$JWT_FILE"
           }
-
           get_installation_id() {
             local jwt
             jwt=$(cat "$JWT_FILE")
@@ -64,7 +61,6 @@ jobs:
             fi
             echo "$installation_id" > "$INSTALLATION_ID_FILE"
           }
-
           generate_access_token() {
             local installation_id
             installation_id=$(cat "$INSTALLATION_ID_FILE")
@@ -84,12 +80,10 @@ jobs:
             fi
             echo "$token" > "$TOKEN_FILE"
           }
-
           # Generate JWT, get installation ID, and generate access token
           generate_jwt
           get_installation_id
           generate_access_token
-
           # Export the token as an environment variable
           echo "token=$(cat "$TOKEN_FILE")" >> $GITHUB_ENV
 
@@ -159,7 +153,7 @@ jobs:
               echo "Pull request has been approved and assigned to $target_user."
               
               # Add the comment to the PR
-              comment_body="Code changes self review done\nReviewed API Security - NA\nReviewed API Response Time - NA\nReviewed API Response Size - NA\nReviewed the Technical Design Document - NA\nReviewed the Verification Document - NA\nReviewed Method Level Comments - NA\nReviewed the Test Cases - Y\nOptimized by Copilot - Y\nReviewed byCopilot - Y"
+              comment_body="Code changes self review done\nReviewed API Security - NA\nReviewed API Response Time - NA\nReviewed API Response Size - NA\nReviewed the Technical Design Document - NA\nReviewed the Verification Document - NA\nReviewed Method Level Comments - NA\nReviewed the Test Cases - Y\nOptimized by Copilot - Y\nReviewed by Copilot - Y"
               gh pr comment $pr_number --body "$comment_body"
               exit 0
             fi
