@@ -1,59 +1,139 @@
-name: Auto Merge
+name: Sync branches with conflict handling
 
 on:
-  pull_request:
-    types: [review_requested, reviewed]
+  push:
+    branches:
+      - '*'
 
 jobs:
-  auto-merge:
+  branch-sync:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Install GitHub CLI
-      run: |
-        sudo apt-get update
-        sudo apt-get install gh
-
-    - name: Authenticate GitHub CLI
-      run: echo "${{ secrets.JEGAN }}" | gh auth login --with-token
-
-    - name: Wait for pull request approval and check assignment
-      id: wait_for_approval_and_check_assignment
-      run: |
-        pr_number=${{ github.event.pull_request.number }}
-        target_user="egangithub1502"
-        timeout=600  # Time to wait in seconds (10 minutes)
-        interval=10  # Interval between checks in seconds
-        elapsed=0
-
-        echo "Waiting for pull request approval and check assignment..."
-
-        while [ $elapsed -lt $timeout ]; do
-          review_status=$(gh pr view $pr_number --json reviews --jq '.reviews[] | select(.state == "APPROVED")' || echo "")
-          assignees=$(gh pr view $pr_number --json assignees --jq '.assignees[].login' || echo "")
-
-          echo "Review Status: $review_status"
-          echo "Assignees: $assignees"
-
-          if [ -n "$review_status" ] && echo "$assignees" | grep -q "$target_user"; then
-            echo "Pull request has been approved and assigned to $target_user."
-            exit 0
+      - name: Set up git
+        run: |
+          git config --global user.name 'egangithub1502'
+          git config --global user.email '2010177071b@gmail.com'
+      - name: Check if direct commit to master
+        id: check_direct_commit
+        run: |
+          branch_name="${GITHUB_REF#refs/heads/}"
+          
+          if [ "$branch_name" == "master" ]; then
+            echo "Direct commit to master detected."
+            echo "DIRECT_COMMIT=true" >> $GITHUB_ENV
+          else
+            echo "DIRECT_COMMIT=false" >> $GITHUB_ENV
           fi
+      - name: Notify Google Chat on Direct Commit
+        if: env.DIRECT_COMMIT == 'true'
+        run: |
+          curl -X POST -H 'Content-Type: application/json' --data '{"text": "Direct commit detected on the master branch."}' ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+        continue-on-error: true
 
-          echo "Waiting for approval and assignment..."
-          sleep $interval
-          elapsed=$((elapsed + interval))
-        done
-
-        echo "Timeout reached. No approval or incorrect assignment."
-        exit 1
-
-    - name: Merge pull request
-      if: success()
-      run: |
-        pr_number=${{ github.event.pull_request.number }}
-        echo "Attempting to merge pull request #$pr_number"
-        gh pr merge $pr_number --merge --admin
+      - name: Sync branches
+        if: env.DIRECT_COMMIT == 'false'
+        run: |
+          # Extract branch name from the reference
+          branch_name="${GITHUB_REF#refs/heads/}"
+          
+          # Determine if this is an HF or minor branch
+          case "$branch_name" in
+            profit_dep_hf_*)
+              BRANCH_TYPE="hf"
+              ;;
+            profit_dep_minor_*)
+              BRANCH_TYPE="minor"
+              ;;
+            *)
+              BRANCH_TYPE="none"
+              ;;
+          esac
+          
+          echo "Branch Type: $BRANCH_TYPE"
+          
+          if [ "$BRANCH_TYPE" == "hf" ]; then
+            # Get the latest HF branch
+            latest_hf_branch=$(git branch -r | grep 'origin/profit_dep_hf_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
+            echo "Latest HF branch: $latest_hf_branch"
+            
+            # Get the latest minor branch
+            latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
+            echo "Latest minor branch: $latest_minor_branch"
+            
+            # Merge HF into minor
+            git fetch origin
+            git checkout "$latest_minor_branch"
+            git merge --no-commit --no-ff "origin/$latest_hf_branch" || true
+            if [ $? -ne 0 ]; then
+              echo "Merge conflict detected."
+              conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
+              committer=$(git log -1 --pretty=format:'%an')
+              temp_branch="temp/hf-to-minor-conflict"
+              git checkout -b "$temp_branch"
+              git push origin "$temp_branch"
+              message="Merge conflict detected when merging HF into minor.\nConflicting files:\n$conflict_files\nLast committer: $committer\nTemporary branch created: $temp_branch"
+              echo "$message"
+              curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+              exit 1
+            fi
+            git commit -m "Merge $latest_hf_branch into $latest_minor_branch"
+            git push origin "$latest_minor_branch"
+            
+            # Attempt to merge minor into master
+            git fetch origin
+            git checkout master
+            git merge --no-commit --no-ff "origin/$latest_minor_branch" || true
+            if [ $? -ne 0 ]; then
+              echo "Merge conflict detected."
+              conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
+              committer=$(git log -1 --pretty=format:'%an')
+              temp_branch="temp/minor-to-master-conflict"
+              git checkout -b "$temp_branch"
+              git push origin "$temp_branch"
+              message="Merge conflict detected when merging minor into master.\nConflicting files:\n$conflict_files\nLast committer: $committer\nTemporary branch created: $temp_branch"
+              echo "$message"
+              curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+              exit 1
+            fi
+            git commit -m "Merge $latest_minor_branch into master"
+            git push origin master
+          elif [ "$BRANCH_TYPE" == "minor" ]; then
+            echo "Processing minor branch only."
+            
+            # Get the latest minor branch
+            latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
+            echo "Latest minor branch: $latest_minor_branch"
+            
+            # Attempt to merge minor into master
+            git fetch origin
+            git checkout master
+            git merge --no-commit --no-ff "origin/$latest_minor_branch" || true
+            if [ $? -ne 0 ]; then
+              echo "Merge conflict detected."
+              conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
+              committer=$(git log -1 --pretty=format:'%an')
+              temp_branch="temp/minor-to-master-conflict"
+              git checkout -b "$temp_branch"
+              git push origin "$temp_branch"
+              message="Merge conflict detected when merging minor into master.\nConflicting files:\n$conflict_files\nLast committer: $committer\nTemporary branch created: $temp_branch"
+              echo "$message"
+              curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+              exit 1
+            fi
+            git commit -m "Merge $latest_minor_branch into master"
+            git push origin master
+          fi
+      - name: Notify Google Chat on Success
+        if: success()
+        run: |
+          curl -X POST -H 'Content-Type: application/json' --data '{"text": "Sync branches job succeeded."}' ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+      - name: Notify Google Chat on Failure
+        if: failure()
+        run: |
+          # The detailed conflict message is sent above, so this step is no longer necessary
+          echo "Failure notification is not needed; detailed conflict messages are already sent."
