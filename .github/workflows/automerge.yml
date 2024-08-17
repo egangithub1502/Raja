@@ -9,12 +9,18 @@ on:
 jobs:
   create-pr:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install GitHub CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install gh -y
+          
       - name: Check if branch is master
         id: check_branch
         run: |
@@ -23,6 +29,7 @@ jobs:
             echo "Direct commit to master detected. No action taken."
             exit 0
           fi
+        continue-on-error: true
 
       - name: Create PR from HF to Minor
         if: startsWith(github.ref, 'refs/heads/profit_dep_hf_')
