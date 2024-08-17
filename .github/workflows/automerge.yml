@@ -38,10 +38,9 @@ jobs:
             echo "DIRECT_COMMIT=false" >> $GITHUB_ENV
           fi
 
-      - name: Determine Branches
+      - name: Determine branch type
         id: determine_branches
         run: |
-          # Extract branch name from the reference
           branch_name="${GITHUB_REF#refs/heads/}"
           
           # Determine if this is an HF or minor branch
@@ -58,29 +57,21 @@ jobs:
           esac
           
           echo "Branch Type: $BRANCH_TYPE"
-          
-          if [ "$BRANCH_TYPE" == "hf" ]; then
-            latest_hf_branch=$(git branch -r | grep 'origin/profit_dep_hf_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
-            echo "latest_hf_branch=$latest_hf_branch" >> $GITHUB_ENV
-            
-            latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
-            echo "latest_minor_branch=$latest_minor_branch" >> $GITHUB_ENV
-          elif [ "$BRANCH_TYPE" == "minor" ]; then
-            latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
-            echo "latest_minor_branch=$latest_minor_branch" >> $GITHUB_ENV
-          fi
 
-      - name: Sync branches
+      - name: Fetch and merge branches based on type
         if: env.DIRECT_COMMIT == 'false'
         run: |
-          # Fetch and merge branches based on type
           git fetch origin
           branch_name="${GITHUB_REF#refs/heads/}"
-          BRANCH_TYPE=$(echo ${{ steps.determine_branches.outputs.BRANCH_TYPE }})
+          BRANCH_TYPE="${{ steps.determine_branches.outputs.BRANCH_TYPE }}"
 
           if [ "$BRANCH_TYPE" == "hf" ]; then
+            # Get the latest minor branch
+            latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
+            echo "Latest minor branch: $latest_minor_branch"
+            
             # Merge HF into minor
-            git checkout ${{ env.latest_minor_branch }}
+            git checkout $latest_minor_branch
             git merge --no-commit --no-ff origin/$branch_name || true
             
             if git ls-files -u | grep -q .; then
@@ -93,8 +84,8 @@ jobs:
               
               exit 1
             fi
-            git commit -m "Merge $branch_name into ${{ env.latest_minor_branch }}"
-            git push origin ${{ env.latest_minor_branch }}
+            git commit -m "Merge $branch_name into $latest_minor_branch"
+            git push origin $latest_minor_branch
           elif [ "$BRANCH_TYPE" == "minor" ]; then
             # Merge minor into master
             git checkout master
@@ -115,28 +106,29 @@ jobs:
           fi
 
       - name: Create PR from HF to Minor
-        if: steps.determine_branches.outputs.BRANCH_TYPE == 'hf'
+        if: env.BRANCH_TYPE == 'hf'
         env:
           GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
           branch_name=${GITHUB_REF#refs/heads/}
-          echo "Creating PR from $branch_name to ${{ env.latest_minor_branch }}"
+          latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
           
+          echo "Creating PR from $branch_name to $latest_minor_branch"
           gh pr create \
-            --title "Merge $branch_name into ${{ env.latest_minor_branch }}" \
-            --body "This PR merges the changes from $branch_name into ${{ env.latest_minor_branch }}." \
-            --base ${{ env.latest_minor_branch }} \
+            --title "Merge $branch_name into $latest_minor_branch" \
+            --body "This PR merges the changes from $branch_name into $latest_minor_branch." \
+            --base "$latest_minor_branch" \
             --head "$branch_name" \
             --reviewer "jessesquires"
 
       - name: Create PR from Minor to Master
-        if: steps.determine_branches.outputs.BRANCH_TYPE == 'minor'
+        if: env.BRANCH_TYPE == 'minor'
         env:
           GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
           branch_name=${GITHUB_REF#refs/heads/}
-          echo "Creating PR from $branch_name to master"
           
+          echo "Creating PR from $branch_name to master"
           gh pr create \
             --title "Merge $branch_name into master" \
             --body "This PR merges the changes from $branch_name into master." \
