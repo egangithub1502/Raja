@@ -71,7 +71,7 @@ jobs:
           echo "Checking branch: $branch_name"
           if [ "$branch_name" = "master" ]; then
             echo "Direct commit to master detected. No action taken."
-            exit 0
+            
           fi
         continue-on-error: false
 
