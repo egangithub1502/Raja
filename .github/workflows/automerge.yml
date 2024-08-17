@@ -74,8 +74,16 @@ jobs:
             git commit -m "Merge $latest_hf_branch into $latest_minor_branch"
             git push origin "$latest_minor_branch"
 
-            echo "Creating pull request to sync HF to Minor..."
-            gh pr create --title "Sync HF Branch to Minor Branch" --body "This PR synchronizes the latest HF branch into the minor branch." --base "$latest_minor_branch" --head "$latest_hf_branch"
+            echo "Checking if a pull request is needed..."
+            latest_commit_hf=$(git log -1 --format="%H" "origin/$latest_hf_branch")
+            latest_commit_minor=$(git log -1 --format="%H" "origin/$latest_minor_branch")
+
+            if [ "$latest_commit_hf" != "$latest_commit_minor" ]; then
+              echo "Creating pull request to sync HF to Minor..."
+              gh pr create --title "Sync HF Branch to Minor Branch" --body "This PR synchronizes the latest HF branch into the minor branch." --base "$latest_minor_branch" --head "$latest_hf_branch"
+            else
+              echo "No new changes to create a pull request."
+            fi
 
             echo "Waiting for manual review and merge..."
             echo "Please merge the PR manually before proceeding to the next step."
