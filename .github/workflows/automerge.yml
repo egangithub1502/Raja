@@ -48,7 +48,7 @@ jobs:
             
             # Get the corresponding minor branch based on date suffix
             date_suffix="${branch_name##*_}"
-            latest_minor_branch=$(git branch -r | grep "origin/profit_dep_minor_" | grep "$date_suffix" | sed 's/origin\///' | sort -r | head -n 1 | xargs)
+            latest_minor_branch=$(git branch -r | grep "origin/profit_dep_minor_" | sed 's/origin\///' | sort -r | head -n 1 | xargs)
             echo "Latest minor branch: $latest_minor_branch"
             
             # Check if the latest_minor_branch was found
