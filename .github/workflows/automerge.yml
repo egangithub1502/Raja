@@ -1,15 +1,15 @@
-name: Sync HF to Minor and Master
+name: Example Workflow
 
 on:
   push:
     branches:
-      - 'profit_dep_hf_*'
+      - 'main'
 
 jobs:
-  sync-and-create-pr:
+  example:
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ secrets.JEGANMERGE }}  # Use your custom token
+      GH_TOKEN: ${{ secrets.JEGANMERGE }}  # Use the secret name you set
 
     steps:
       - name: Checkout code
@@ -17,46 +17,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up git
-        run: |
-          git config --global user.name 'your-username'
-          git config --global user.email 'your-email@example.com'
-
       - name: Set up GitHub CLI
         run: |
-          echo "${JEGANMERGE}" | gh auth login --with-token
+          gh auth login --with-token <<< "${JEGAN}"  # Use the environment variable
 
-      - name: Determine Branch Type
-        id: branch_type
+      - name: Create Pull Request
         run: |
-          branch_name="${GITHUB_REF#refs/heads/}"
-          if [[ "$branch_name" == profit_dep_hf_* ]]; then
-            echo "BRANCH_TYPE=hf" >> $GITHUB_ENV
-          else
-            echo "BRANCH_TYPE=none" >> $GITHUB_ENV
-          fi
-
-      - name: Sync HF to Minor
-        if: env.BRANCH_TYPE == 'hf'
-        run: |
-          hf_branch="${GITHUB_REF#refs/heads/}"
-          latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
-
-          git fetch origin
-          git checkout "$latest_minor_branch"
-          git merge --no-commit --no-ff "origin/$hf_branch" || true
-          git commit -m "Merge $hf_branch into $latest_minor_branch"
-          git push origin "$latest_minor_branch"
-
-          # Sync Minor to Master
-          git checkout master
-          git merge --no-commit --no-ff "origin/$latest_minor_branch" || true
-          git commit -m "Merge $latest_minor_branch into master"
-          git push origin master
-
-          # Create Pull Request from HF to Minor
-          pr_title="Sync $hf_branch to $latest_minor_branch"
-          pr_body="This pull request merges changes from HF branch ($hf_branch) into Minor branch ($latest_minor_branch)."
-
-          echo "Creating pull request to sync HF into Minor..."
-          gh pr create --title "$pr_title" --body "$pr_body" --base "$latest_minor_branch" --head "$hf_branch"
+          gh pr create --title "Example PR" --body "This is an example PR" --base main --head feature-branch
