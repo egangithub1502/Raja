@@ -30,7 +30,7 @@ jobs:
             echo "DIRECT_COMMIT=false" >> $GITHUB_ENV
           fi
 
-      - name: Sync branches
+      - name: Create Pull Request
         if: env.DIRECT_COMMIT == 'false'
         run: |
           branch_name="${GITHUB_REF#refs/heads/}"
@@ -59,6 +59,7 @@ jobs:
             git fetch origin
             git checkout "$latest_minor_branch"
             git merge --no-commit --no-ff "origin/$latest_hf_branch" || true
+            
             if git ls-files -u | grep -q .; then
               echo "Merge conflict detected."
               conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
@@ -72,6 +73,9 @@ jobs:
               
               message="Merge conflict detected when merging HF into minor.\nConflicting files:\n$conflict_files\nLast committer: $committer\nTemporary branch created: $temp_branch"
               curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+
+              # Create pull request to resolve conflicts
+              gh pr create --title "Resolve conflicts between $latest_hf_branch and $latest_minor_branch" --body "This PR resolves conflicts between HF and Minor branches." --base "$latest_minor_branch" --head "$temp_branch"
               
               exit 1
             fi
@@ -81,6 +85,7 @@ jobs:
             git fetch origin
             git checkout master
             git merge --no-commit --no-ff "origin/$latest_minor_branch" || true
+            
             if git ls-files -u | grep -q .; then
               echo "Merge conflict detected."
               conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
@@ -94,6 +99,9 @@ jobs:
               
               message="Merge conflict detected when merging minor into master.\nConflicting files:\n$conflict_files\nLast committer: $committer\nTemporary branch created: $temp_branch"
               curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+
+              # Create pull request to resolve conflicts
+              gh pr create --title "Resolve conflicts between $latest_minor_branch and master" --body "This PR resolves conflicts between Minor and Master branches." --base master --head "$temp_branch"
               
               exit 1
             fi
@@ -108,6 +116,7 @@ jobs:
             git fetch origin
             git checkout master
             git merge --no-commit --no-ff "origin/$latest_minor_branch" || true
+            
             if git ls-files -u | grep -q .; then
               echo "Merge conflict detected."
               conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
@@ -121,6 +130,9 @@ jobs:
               
               message="Merge conflict detected when merging minor into master.\nConflicting files:\n$conflict_files\nLast committer: $committer\nTemporary branch created: $temp_branch"
               curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+
+              # Create pull request to resolve conflicts
+              gh pr create --title "Resolve conflicts between $latest_minor_branch and master" --body "This PR resolves conflicts between Minor and Master branches." --base master --head "$temp_branch"
               
               exit 1
             fi
