@@ -8,6 +8,9 @@ on:
 jobs:
   branch-sync:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -18,6 +21,15 @@ jobs:
         run: |
           git config --global user.name 'egangithub1502'
           git config --global user.email '2010177071b@gmail.com'
+
+      - name: Set up GitHub CLI
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+
+      - name: Pull remote changes
+        run: |
+          git fetch origin
+          git pull --rebase
 
       - name: Check if direct commit to master
         id: check_direct_commit
@@ -30,7 +42,7 @@ jobs:
             echo "DIRECT_COMMIT=false" >> $GITHUB_ENV
           fi
 
-      - name: Create Pull Request
+      - name: Sync branches and handle conflicts
         if: env.DIRECT_COMMIT == 'false'
         run: |
           branch_name="${GITHUB_REF#refs/heads/}"
@@ -75,7 +87,7 @@ jobs:
               curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
 
               # Create pull request to resolve conflicts
-              gh pr create --title "Resolve conflicts between $latest_hf_branch and $latest_minor_branch" --body "This PR resolves conflicts between HF and Minor branches." --base "$latest_minor_branch" --head "$temp_branch"
+              gh pr create --title "Resolve conflicts between $latest_hf_branch and $latest_minor_branch" --body "This PR resolves conflicts between HF and Minor branches." --base "$latest_minor_branch" --head "$temp_branch" || exit 1
               
               exit 1
             fi
@@ -101,7 +113,7 @@ jobs:
               curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
 
               # Create pull request to resolve conflicts
-              gh pr create --title "Resolve conflicts between $latest_minor_branch and master" --body "This PR resolves conflicts between Minor and Master branches." --base master --head "$temp_branch"
+              gh pr create --title "Resolve conflicts between $latest_minor_branch and master" --body "This PR resolves conflicts between Minor and Master branches." --base master --head "$temp_branch" || exit 1
               
               exit 1
             fi
@@ -132,7 +144,7 @@ jobs:
               curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
 
               # Create pull request to resolve conflicts
-              gh pr create --title "Resolve conflicts between $latest_minor_branch and master" --body "This PR resolves conflicts between Minor and Master branches." --base master --head "$temp_branch"
+              gh pr create --title "Resolve conflicts between $latest_minor_branch and master" --body "This PR resolves conflicts between Minor and Master branches." --base master --head "$temp_branch" || exit 1
               
               exit 1
             fi
@@ -148,5 +160,4 @@ jobs:
       - name: Notify Google Chat on Failure
         if: failure()
         run: |
-          # The detailed conflict message is sent above, so this step is no longer necessary
           echo "Failure notification is not needed; detailed conflict messages are already sent."
