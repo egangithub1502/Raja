@@ -27,7 +27,11 @@ jobs:
           branch_name=${GITHUB_REF#refs/heads/}
           if [[ "$branch_name" == profit_dep_hf_* ]]; then
             date_suffix="${branch_name##*_}"
-            latest_minor_branch=$(gh branch list | grep "profit_dep_minor_" | grep "$date_suffix" | sort -r | head -n 1)
+            latest_minor_branch=$(gh branch list --format '%(refname:short)' | grep "profit_dep_minor_" | grep "$date_suffix" | sort -r | head -n 1)
+            if [ -z "$latest_minor_branch" ]; then
+              echo "No matching minor branch found."
+              exit 1
+            fi
             echo "latest_minor_branch=$latest_minor_branch" >> $GITHUB_ENV
           fi
 
@@ -52,8 +56,8 @@ jobs:
           gh pr create \
             --title "Merge $branch_name into $latest_minor_branch" \
             --body "This PR merges the changes from $branch_name into $latest_minor_branch." \
-            --base $latest_minor_branch \
-            --head $branch_name \
+            --base "$latest_minor_branch" \
+            --head "$branch_name" \
             --reviewer "jessesquires"
 
       - name: Create PR from Minor to Master
@@ -68,5 +72,5 @@ jobs:
             --title "Merge $branch_name into master" \
             --body "This PR merges the changes from $branch_name into master." \
             --base master \
-            --head $branch_name \
+            --head "$branch_name" \
             --reviewer "jessesquires"
