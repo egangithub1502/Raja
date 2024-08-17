@@ -23,7 +23,6 @@ jobs:
         id: check_direct_commit
         run: |
           branch_name="${GITHUB_REF#refs/heads/}"
-          
           if [ "$branch_name" == "master" ]; then
             echo "Direct commit to master detected."
             echo "DIRECT_COMMIT=true" >> $GITHUB_ENV
@@ -34,10 +33,8 @@ jobs:
       - name: Sync branches
         if: env.DIRECT_COMMIT == 'false'
         run: |
-          # Extract branch name from the reference
           branch_name="${GITHUB_REF#refs/heads/}"
           
-          # Determine if this is an HF or minor branch
           case "$branch_name" in
             profit_dep_hf_*)
               BRANCH_TYPE="hf"
@@ -49,19 +46,16 @@ jobs:
               BRANCH_TYPE="none"
               ;;
           esac
-          
+
           echo "Branch Type: $BRANCH_TYPE"
           
           if [ "$BRANCH_TYPE" == "hf" ]; then
-            # Get the latest HF branch
             latest_hf_branch=$(git branch -r | grep 'origin/profit_dep_hf_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
             echo "Latest HF branch: $latest_hf_branch"
             
-            # Get the latest minor branch
             latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
             echo "Latest minor branch: $latest_minor_branch"
-            
-            # Merge HF into minor
+
             git fetch origin
             git checkout "$latest_minor_branch"
             git merge --no-commit --no-ff "origin/$latest_hf_branch" || true
@@ -71,13 +65,11 @@ jobs:
               committer=$(git log -1 --pretty=format:'%an')
               temp_branch="temp/hf-to-minor-conflict"
               
-              # Create and push temporary branch
               git checkout -b "$temp_branch"
               git add -A
               git commit -m "Temporary commit to handle merge conflict"
               git push origin "$temp_branch"
               
-              # Notify about the conflict
               message="Merge conflict detected when merging HF into minor.\nConflicting files:\n$conflict_files\nLast committer: $committer\nTemporary branch created: $temp_branch"
               curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
               
@@ -86,7 +78,6 @@ jobs:
             git commit -m "Merge $latest_hf_branch into $latest_minor_branch"
             git push origin "$latest_minor_branch"
             
-            # Attempt to merge minor into master
             git fetch origin
             git checkout master
             git merge --no-commit --no-ff "origin/$latest_minor_branch" || true
@@ -96,13 +87,11 @@ jobs:
               committer=$(git log -1 --pretty=format:'%an')
               temp_branch="temp/minor-to-master-conflict"
               
-              # Create and push temporary branch
               git checkout -b "$temp_branch"
               git add -A
               git commit -m "Temporary commit to handle merge conflict"
               git push origin "$temp_branch"
               
-              # Notify about the conflict
               message="Merge conflict detected when merging minor into master.\nConflicting files:\n$conflict_files\nLast committer: $committer\nTemporary branch created: $temp_branch"
               curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
               
@@ -113,11 +102,9 @@ jobs:
           elif [ "$BRANCH_TYPE" == "minor" ]; then
             echo "Processing minor branch only."
             
-            # Get the latest minor branch
             latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
             echo "Latest minor branch: $latest_minor_branch"
             
-            # Attempt to merge minor into master
             git fetch origin
             git checkout master
             git merge --no-commit --no-ff "origin/$latest_minor_branch" || true
@@ -127,13 +114,11 @@ jobs:
               committer=$(git log -1 --pretty=format:'%an')
               temp_branch="temp/minor-to-master-conflict"
               
-              # Create and push temporary branch
               git checkout -b "$temp_branch"
               git add -A
               git commit -m "Temporary commit to handle merge conflict"
               git push origin "$temp_branch"
               
-              # Notify about the conflict
               message="Merge conflict detected when merging minor into master.\nConflicting files:\n$conflict_files\nLast committer: $committer\nTemporary branch created: $temp_branch"
               curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
               
