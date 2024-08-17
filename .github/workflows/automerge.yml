@@ -24,9 +24,14 @@ jobs:
         id: get_latest_minor_branch
         run: |
           branch_name=${GITHUB_REF#refs/heads/}
+          echo "Branch name: $branch_name"
           if [[ "$branch_name" == profit_dep_hf_* ]]; then
             date_suffix="${branch_name##*_}"
+            echo "Date suffix: $date_suffix"
+            echo "Listing remote branches..."
+            git branch -r
             latest_minor_branch=$(git branch -r | grep "origin/profit_dep_minor_" | grep "$date_suffix" | sed 's/origin\///' | sort -r | head -n 1)
+            echo "Latest minor branch: $latest_minor_branch"
             if [ -z "$latest_minor_branch" ]; then
               echo "No matching minor branch found."
               exit 1
