@@ -20,23 +20,48 @@ jobs:
         run: |
           git fetch --all
 
-      - name: Determine Latest Minor Branch
-        id: get_latest_minor_branch
+      - name: Determine Branch Type and Latest Branches
+        id: determine_branches
         run: |
-          branch_name=${GITHUB_REF#refs/heads/}
-          echo "Branch name: $branch_name"
-          if [[ "$branch_name" == profit_dep_hf_* ]]; then
+          # Extract branch name from the reference
+          branch_name="${GITHUB_REF#refs/heads/}"
+          
+          # Determine if this is an HF or minor branch
+          case "$branch_name" in
+            profit_dep_hf_*)
+              BRANCH_TYPE="hf"
+              ;;
+            profit_dep_minor_*)
+              BRANCH_TYPE="minor"
+              ;;
+            *)
+              BRANCH_TYPE="none"
+              ;;
+          esac
+          
+          echo "Branch Type: $BRANCH_TYPE"
+          
+          if [ "$BRANCH_TYPE" == "hf" ]; then
+            # Get the latest HF branch
+            latest_hf_branch=$(git branch -r | grep 'origin/profit_dep_hf_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
+            echo "Latest HF branch: $latest_hf_branch"
+            
+            # Get the corresponding minor branch based on date suffix
             date_suffix="${branch_name##*_}"
-            echo "Date suffix: $date_suffix"
-            echo "Listing remote branches..."
-            git branch -r
-            latest_minor_branch=$(git branch -r | grep "origin/profit_dep_minor_" | grep "$date_suffix" | sed 's/origin\///' | sort -r | head -n 1)
+            latest_minor_branch=$(git branch -r | grep "origin/profit_dep_minor_" | grep "$date_suffix" | sed 's/origin\///' | sort -r | head -n 1 | xargs)
             echo "Latest minor branch: $latest_minor_branch"
+            
+            # Check if the latest_minor_branch was found
             if [ -z "$latest_minor_branch" ]; then
               echo "No matching minor branch found."
               exit 1
             fi
+
             echo "latest_minor_branch=$latest_minor_branch" >> $GITHUB_ENV
+          elif [ "$BRANCH_TYPE" == "minor" ]; then
+            # For minor branches, find the latest master branch
+            latest_master_branch="master"
+            echo "latest_master_branch=$latest_master_branch" >> $GITHUB_ENV
           fi
 
       - name: Check if branch is master
@@ -50,7 +75,7 @@ jobs:
         continue-on-error: true
 
       - name: Create PR from HF to Minor
-        if: startsWith(github.ref, 'refs/heads/profit_dep_hf_')
+        if: steps.determine_branches.outputs.BRANCH_TYPE == 'hf'
         env:
           GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
@@ -65,7 +90,7 @@ jobs:
             --reviewer "jessesquires"
 
       - name: Create PR from Minor to Master
-        if: startsWith(github.ref, 'refs/heads/profit_dep_minor_')
+        if: steps.determine_branches.outputs.BRANCH_TYPE == 'minor'
         env:
           GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
