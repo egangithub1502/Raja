@@ -1,26 +1,52 @@
-name: Example Workflow
+name: Create Pull Requests for Branch Merging
 
 on:
   push:
     branches:
-      - 'main'
+      - 'profit_dep_hf_*'
+      - 'profit_dep_minor_*'
 
 jobs:
-  example:
+  create-pr:
     runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ secrets.JEGANMERGE }}  # Use the secret name you set
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v3
         with:
-          fetch-depth: 0
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
 
-      - name: Set up GitHub CLI
+      - name: Check if branch is master
+        id: check_branch
         run: |
-          gh auth login --with-token <<< "${JEGAN}"  # Use the environment variable
+          branch_name=${GITHUB_REF#refs/heads/}
+          if [ "$branch_name" = "master" ]; then
+            echo "Direct commit to master detected. No action taken."
+            exit 0
+          fi
 
-      - name: Create Pull Request
+      - name: Create PR from HF to Minor
+        if: startsWith(github.ref, 'refs/heads/profit_dep_hf_')
         run: |
-          gh pr create --title "Example PR" --body "This is an example PR" --base main --head feature-branch
+          branch_name=${GITHUB_REF#refs/heads/}
+          minor_branch="profit_dep_minor_${branch_name##*_}"
+          echo "Creating PR from $branch_name to $minor_branch"
+          
+          gh pr create \
+            --title "Merge $branch_name into $minor_branch" \
+            --body "This PR merges the changes from $branch_name into $minor_branch." \
+            --base $minor_branch \
+            --head $branch_name \
+            --reviewer "jessesquires"
+
+      - name: Create PR from Minor to Master
+        if: startsWith(github.ref, 'refs/heads/profit_dep_minor_')
+        run: |
+          branch_name=${GITHUB_REF#refs/heads/}
+          echo "Creating PR from $branch_name to master"
+          
+          gh pr create \
+            --title "Merge $branch_name into master" \
+            --body "This PR merges the changes from $branch_name into master." \
+            --base master \
+            --head $branch_name \
+            --reviewer "jessesquires"
