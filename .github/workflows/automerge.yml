@@ -9,7 +9,7 @@ jobs:
   sync-and-create-pr:
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Set GitHub token for gh CLI
+      GH_TOKEN: ${{ secrets.JEGANMERGE }}  # Use your custom token
 
     steps:
       - name: Checkout code
@@ -19,12 +19,12 @@ jobs:
 
       - name: Set up git
         run: |
-          git config --global user.name 'egangithub1502'
-          git config --global user.email '2010177071b@gmail.com'
+          git config --global user.name 'your-username'
+          git config --global user.email 'your-email@example.com'
 
       - name: Set up GitHub CLI
         run: |
-          echo "${JEGANMERGE}" | gh auth login --with-token
+          echo "${GH_TOKEN}" | gh auth login --with-token
 
       - name: Determine Branch Type
         id: branch_type
