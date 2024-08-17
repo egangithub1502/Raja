@@ -16,10 +16,9 @@ jobs:
         with:
           token: ${{ secrets.JEGANMERGE }}
 
-      - name: Install GitHub CLI
+      - name: Fetch All Branches
         run: |
-          sudo apt-get update
-          sudo apt-get install gh -y
+          git fetch --all
 
       - name: Determine Latest Minor Branch
         id: get_latest_minor_branch
