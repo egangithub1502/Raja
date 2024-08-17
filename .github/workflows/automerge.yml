@@ -107,6 +107,7 @@ jobs:
 
       - name: Create PR from HF to Minor
         if: env.BRANCH_TYPE == 'hf'
+        id: create_hf_to_minor_pr
         env:
           GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
@@ -121,8 +122,33 @@ jobs:
             --head "$branch_name" \
             --reviewer "jessesquires"
 
+      - name: Wait for PR approval and merge (HF to Minor)
+        if: steps.create_hf_to_minor_pr.outcome == 'success' && env.BRANCH_TYPE == 'hf'
+        env:
+          GH_TOKEN: ${{ secrets.JEGANMERGE }}
+        run: |
+          branch_name=${GITHUB_REF#refs/heads/}
+          latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
+          pr_url=$(gh pr view --json url --jq '.url')
+          
+          # Wait for the PR to be reviewed and approved
+          while true; do
+            reviews=$(gh pr view "$pr_url" --json reviews --jq '.reviews')
+            approved=$(echo "$reviews" | jq -r '.[] | select(.state == "APPROVED")')
+            if [ -n "$approved" ]; then
+              echo "PR approved"
+              break
+            fi
+            echo "Waiting for PR approval..."
+            sleep 30
+          done
+
+          # Merge the PR after approval
+          gh pr merge "$pr_url" --merge
+
       - name: Create PR from Minor to Master
         if: env.BRANCH_TYPE == 'minor'
+        id: create_minor_to_master_pr
         env:
           GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
@@ -135,6 +161,29 @@ jobs:
             --base master \
             --head "$branch_name" \
             --reviewer "jessesquires"
+
+      - name: Wait for PR approval and merge (Minor to Master)
+        if: steps.create_minor_to_master_pr.outcome == 'success' && env.BRANCH_TYPE == 'minor'
+        env:
+          GH_TOKEN: ${{ secrets.JEGANMERGE }}
+        run: |
+          branch_name=${GITHUB_REF#refs/heads/}
+          pr_url=$(gh pr view --json url --jq '.url')
+          
+          # Wait for the PR to be reviewed and approved
+          while true; do
+            reviews=$(gh pr view "$pr_url" --json reviews --jq '.reviews')
+            approved=$(echo "$reviews" | jq -r '.[] | select(.state == "APPROVED")')
+            if [ -n "$approved" ]; then
+              echo "PR approved"
+              break
+            fi
+            echo "Waiting for PR approval..."
+            sleep 30
+          done
+
+          # Merge the PR after approval
+          gh pr merge "$pr_url" --merge
 
       - name: Notify Google Chat on Success
         if: success()
