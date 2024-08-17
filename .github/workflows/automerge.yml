@@ -33,6 +33,8 @@ jobs:
 
       - name: Create PR from HF to Minor
         if: startsWith(github.ref, 'refs/heads/profit_dep_hf_')
+        env:
+          GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
           branch_name=${GITHUB_REF#refs/heads/}
           minor_branch="profit_dep_minor_${branch_name##*_}"
@@ -47,6 +49,8 @@ jobs:
 
       - name: Create PR from Minor to Master
         if: startsWith(github.ref, 'refs/heads/profit_dep_minor_')
+        env:
+          GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
           branch_name=${GITHUB_REF#refs/heads/}
           echo "Creating PR from $branch_name to master"
