@@ -16,16 +16,21 @@ jobs:
 
       - name: Set up git
         run: |
+          # Extract the commit author and email from the GitHub environment
           COMMITTER_NAME=$(git log -1 --pretty=format:'%an')
           COMMITTER_EMAIL=$(git log -1 --pretty=format:'%ae')
+          
+          # Configure git with the committer's details
           git config --global user.name "$COMMITTER_NAME"
           git config --global user.email "$COMMITTER_EMAIL"
+          
           echo "Configured git with user.name=$COMMITTER_NAME and user.email=$COMMITTER_EMAIL"
 
       - name: Check if direct commit to master
         id: check_direct_commit
         run: |
           branch_name="${GITHUB_REF#refs/heads/}"
+          
           if [ "$branch_name" == "master" ]; then
             echo "Direct commit to master detected."
             echo "DIRECT_COMMIT=true" >> $GITHUB_ENV
@@ -37,6 +42,8 @@ jobs:
         id: determine_branches
         run: |
           branch_name="${GITHUB_REF#refs/heads/}"
+          
+          # Determine if this is an HF or minor branch
           case "$branch_name" in
             profit_dep_hf_*)
               echo "BRANCH_TYPE=hf" >> $GITHUB_ENV
@@ -48,6 +55,8 @@ jobs:
               echo "BRANCH_TYPE=none" >> $GITHUB_ENV
               ;;
           esac
+          
+          echo "Branch Type: $BRANCH_TYPE"
 
       - name: Fetch and merge branches based on type
         if: env.DIRECT_COMMIT == 'false'
@@ -57,29 +66,39 @@ jobs:
           BRANCH_TYPE="${{ steps.determine_branches.outputs.BRANCH_TYPE }}"
 
           if [ "$BRANCH_TYPE" == "hf" ]; then
+            # Get the latest minor branch
             latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
             echo "Latest minor branch: $latest_minor_branch"
+            
+            # Merge HF into minor
             git checkout $latest_minor_branch
             git merge --no-commit --no-ff origin/$branch_name || true
+            
             if git ls-files -u | grep -q .; then
               echo "Merge conflict detected."
               conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
               committer=$(git log -1 --pretty=format:'%an')
+              
               message="Merge conflict detected when merging HF into minor.\nConflicting files:\n$conflict_files\nLast committer: $committer"
               curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+              
               exit 1
             fi
             git commit -m "Merge $branch_name into $latest_minor_branch"
             git push origin $latest_minor_branch
           elif [ "$BRANCH_TYPE" == "minor" ]; then
+            # Merge minor into master
             git checkout master
             git merge --no-commit --no-ff origin/$branch_name || true
+            
             if git ls-files -u | grep -q .; then
               echo "Merge conflict detected."
               conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
               committer=$(git log -1 --pretty=format:'%an')
+              
               message="Merge conflict detected when merging minor into master.\nConflicting files:\n$conflict_files\nLast committer: $committer"
               curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+              
               exit 1
             fi
             git commit -m "Merge $branch_name into master"
@@ -94,34 +113,77 @@ jobs:
         run: |
           branch_name=${GITHUB_REF#refs/heads/}
           latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
+          
           echo "Creating PR from $branch_name to $latest_minor_branch"
-          PR_URL=$(gh pr create --title "Merge $branch_name into $latest_minor_branch" --body "This PR merges the changes from $branch_name into $latest_minor_branch." --base "$latest_minor_branch" --head "$branch_name" --reviewer "jessesquires" --json url)
-          echo "PR_URL=$PR_URL" >> $GITHUB_ENV
+          gh pr create \
+            --title "Merge $branch_name into $latest_minor_branch" \
+            --body "This PR merges the changes from $branch_name into $latest_minor_branch." \
+            --base "$latest_minor_branch" \
+            --head "$branch_name" \
+            --reviewer "jessesquires"
 
-      - name: Wait for PR review and approval (HF to Minor)
+      - name: Wait for PR approval and merge (HF to Minor)
         if: steps.create_hf_to_minor_pr.outcome == 'success' && env.BRANCH_TYPE == 'hf'
+        env:
+          GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
-          PR_URL=${{ steps.create_hf_to_minor_pr.outputs.PR_URL }}
-          gh pr review --approve "$PR_URL"
-          gh pr merge --merge "$PR_URL"
+          branch_name=${GITHUB_REF#refs/heads/}
+          latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
+          pr_url=$(gh pr view --json url --jq '.url')
+          
+          # Wait for the PR to be reviewed and approved
+          while true; do
+            reviews=$(gh pr view "$pr_url" --json reviews --jq '.reviews')
+            approved=$(echo "$reviews" | jq -r '.[] | select(.state == "APPROVED")')
+            if [ -n "$approved" ]; then
+              echo "PR approved"
+              break
+            fi
+            echo "Waiting for PR approval..."
+            sleep 30
+          done
+
+          # Merge the PR after approval
+          gh pr merge "$pr_url" --merge
 
       - name: Create PR from Minor to Master
-        if: env.BRANCH_TYPE == 'minor' && steps.wait_for_pr_approval.outcome == 'success'
+        if: env.BRANCH_TYPE == 'minor'
         id: create_minor_to_master_pr
         env:
           GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
           branch_name=${GITHUB_REF#refs/heads/}
+          
           echo "Creating PR from $branch_name to master"
-          PR_URL=$(gh pr create --title "Merge $branch_name into master" --body "This PR merges the changes from $branch_name into master." --base master --head "$branch_name" --reviewer "jessesquires" --json url)
-          echo "PR_URL=$PR_URL" >> $GITHUB_ENV
+          gh pr create \
+            --title "Merge $branch_name into master" \
+            --body "This PR merges the changes from $branch_name into master." \
+            --base master \
+            --head "$branch_name" \
+            --reviewer "jessesquires"
 
-      - name: Wait for PR review and approval (Minor to Master)
+      - name: Wait for PR approval and merge (Minor to Master)
         if: steps.create_minor_to_master_pr.outcome == 'success' && env.BRANCH_TYPE == 'minor'
+        env:
+          GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
-          PR_URL=${{ steps.create_minor_to_master_pr.outputs.PR_URL }}
-          gh pr review --approve "$PR_URL"
-          gh pr merge --merge "$PR_URL"
+          branch_name=${GITHUB_REF#refs/heads/}
+          pr_url=$(gh pr view --json url --jq '.url')
+          
+          # Wait for the PR to be reviewed and approved
+          while true; do
+            reviews=$(gh pr view "$pr_url" --json reviews --jq '.reviews')
+            approved=$(echo "$reviews" | jq -r '.[] | select(.state == "APPROVED")')
+            if [ -n "$approved" ]; then
+              echo "PR approved"
+              break
+            fi
+            echo "Waiting for PR approval..."
+            sleep 30
+          done
+
+          # Merge the PR after approval
+          gh pr merge "$pr_url" --merge
 
       - name: Notify Google Chat on Success
         if: success()
