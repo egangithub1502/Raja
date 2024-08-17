@@ -87,7 +87,9 @@ jobs:
               curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
 
               # Create pull request to resolve conflicts
-              gh pr create --title "Resolve conflicts between $latest_hf_branch and $latest_minor_branch" --body "This PR resolves conflicts between HF and Minor branches." --base "$latest_minor_branch" --head "$temp_branch" || exit 1
+              echo "Creating pull request for conflict resolution..."
+              pr_response=$(gh pr create --title "Resolve conflicts between $latest_hf_branch and $latest_minor_branch" --body "This PR resolves conflicts between HF and Minor branches." --base "$latest_minor_branch" --head "$temp_branch")
+              echo "Pull request creation response: $pr_response"
               
               exit 1
             fi
@@ -113,7 +115,9 @@ jobs:
               curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
 
               # Create pull request to resolve conflicts
-              gh pr create --title "Resolve conflicts between $latest_minor_branch and master" --body "This PR resolves conflicts between Minor and Master branches." --base master --head "$temp_branch" || exit 1
+              echo "Creating pull request for conflict resolution..."
+              pr_response=$(gh pr create --title "Resolve conflicts between $latest_minor_branch and master" --body "This PR resolves conflicts between Minor and Master branches." --base master --head "$temp_branch")
+              echo "Pull request creation response: $pr_response"
               
               exit 1
             fi
@@ -144,7 +148,9 @@ jobs:
               curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
 
               # Create pull request to resolve conflicts
-              gh pr create --title "Resolve conflicts between $latest_minor_branch and master" --body "This PR resolves conflicts between Minor and Master branches." --base master --head "$temp_branch" || exit 1
+              echo "Creating pull request for conflict resolution..."
+              pr_response=$(gh pr create --title "Resolve conflicts between $latest_minor_branch and master" --body "This PR resolves conflicts between Minor and Master branches." --base master --head "$temp_branch")
+              echo "Pull request creation response: $pr_response"
               
               exit 1
             fi
