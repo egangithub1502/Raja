@@ -107,7 +107,6 @@ jobs:
 
       - name: Create PR from HF to Minor
         if: env.BRANCH_TYPE == 'hf'
-        id: create_hf_to_minor_pr
         env:
           GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
@@ -122,8 +121,25 @@ jobs:
             --head "$branch_name" \
             --reviewer "jessesquires"
 
-      - name: Wait for PR approval and merge (HF to Minor)
-        if: steps.create_hf_to_minor_pr.outcome == 'success' && env.BRANCH_TYPE == 'hf'
+      - name: Create PR from Minor to Master
+        if: env.BRANCH_TYPE == 'minor'
+        env:
+          GH_TOKEN: ${{ secrets.JEGANMERGE }}
+        run: |
+          branch_name=${GITHUB_REF#refs/heads/}
+          
+          echo "Creating PR from $branch_name to master"
+          gh pr create \
+            --title "Merge $branch_name into master" \
+            --body "This PR merges the changes from $branch_name into master." \
+            --base master \
+            --head "$branch_name" \
+            --reviewer "jessesquires"
+
+      # Additional steps to wait for PR approval and merge automatically
+
+      - name: Wait for HF to Minor PR approval and merge
+        if: env.BRANCH_TYPE == 'hf'
         env:
           GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
@@ -146,24 +162,8 @@ jobs:
           # Merge the PR after approval
           gh pr merge "$pr_url" --merge
 
-      - name: Create PR from Minor to Master
+      - name: Wait for Minor to Master PR approval and merge
         if: env.BRANCH_TYPE == 'minor'
-        id: create_minor_to_master_pr
-        env:
-          GH_TOKEN: ${{ secrets.JEGANMERGE }}
-        run: |
-          branch_name=${GITHUB_REF#refs/heads/}
-          
-          echo "Creating PR from $branch_name to master"
-          gh pr create \
-            --title "Merge $branch_name into master" \
-            --body "This PR merges the changes from $branch_name into master." \
-            --base master \
-            --head "$branch_name" \
-            --reviewer "jessesquires"
-
-      - name: Wait for PR approval and merge (Minor to Master)
-        if: steps.create_minor_to_master_pr.outcome == 'success' && env.BRANCH_TYPE == 'minor'
         env:
           GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
