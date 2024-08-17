@@ -1,55 +1,105 @@
-name: Sync HF to Minor and Master
+name: Create Pull Requests for Branch Merging
 
 on:
   push:
     branches:
       - 'profit_dep_hf_*'
+      - 'profit_dep_minor_*'
 
 jobs:
-  sync-and-create-pr:
+  create-pr:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v3
         with:
-          fetch-depth: 0
+          token: ${{ secrets.JEGANMERGE }}
 
-      - name: Set up git
+      - name: Fetch All Branches
         run: |
-          git config --global user.name 'egangithub1502'
-          git config --global user.email '2010177071b@gmail.com'
+          git fetch --all
 
-      - name: Determine Branch Type
-        id: branch_type
+      - name: Determine Branch Type and Latest Branches
+        id: determine_branches
         run: |
+          # Extract branch name from the reference
           branch_name="${GITHUB_REF#refs/heads/}"
-          if [[ "$branch_name" == profit_dep_hf_* ]]; then
-            echo "BRANCH_TYPE=hf" >> $GITHUB_ENV
-          else
-            echo "BRANCH_TYPE=none" >> $GITHUB_ENV
+          
+          # Determine if this is an HF or minor branch
+          case "$branch_name" in
+            profit_dep_hf_*)
+              BRANCH_TYPE="hf"
+              ;;
+            profit_dep_minor_*)
+              BRANCH_TYPE="minor"
+              ;;
+            *)
+              BRANCH_TYPE="none"
+              ;;
+          esac
+          
+          echo "Branch Type: $BRANCH_TYPE"
+          
+          if [ "$BRANCH_TYPE" == "hf" ]; then
+            # Get the latest HF branch
+            latest_hf_branch=$(git branch -r | grep 'origin/profit_dep_hf_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
+            echo "Latest HF branch: $latest_hf_branch"
+            
+            # Get the corresponding minor branch based on date suffix
+            date_suffix="${branch_name##*_}"
+            latest_minor_branch=$(git branch -r | grep "origin/profit_dep_minor_" | grep "$date_suffix" | sed 's/origin\///' | sort -r | head -n 1 | xargs)
+            echo "Latest minor branch: $latest_minor_branch"
+            
+            # Check if the latest_minor_branch was found
+            if [ -z "$latest_minor_branch" ]; then
+              echo "No matching minor branch found."
+              exit 1
+            fi
+
+            echo "latest_minor_branch=$latest_minor_branch" >> $GITHUB_ENV
+          elif [ "$BRANCH_TYPE" == "minor" ]; then
+            # For minor branches, find the latest master branch
+            latest_master_branch="master"
+            echo "latest_master_branch=$latest_master_branch" >> $GITHUB_ENV
           fi
 
-      - name: Sync HF to Minor
-        if: env.BRANCH_TYPE == 'hf'
+      - name: Check if branch is master
+        id: check_branch
         run: |
-          hf_branch="${GITHUB_REF#refs/heads/}"
-          latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
+          branch_name=${GITHUB_REF#refs/heads/}
+          if [ "$branch_name" = "master" ]; then
+            echo "Direct commit to master detected. No action taken."
+            exit 0
+          fi
+        continue-on-error: true
 
-          git fetch origin
-          git checkout "$latest_minor_branch"
-          git merge --no-commit --no-ff "origin/$hf_branch" || true
-          git commit -m "Merge $hf_branch into $latest_minor_branch"
-          git push origin "$latest_minor_branch"
+      - name: Create PR from HF to Minor
+        if: steps.determine_branches.outputs.BRANCH_TYPE == 'hf'
+        env:
+          GH_TOKEN: ${{ secrets.JEGANMERGE }}
+        run: |
+          branch_name=${GITHUB_REF#refs/heads/}
+          echo "Creating PR from $branch_name to $latest_minor_branch"
+          
+          gh pr create \
+            --title "Merge $branch_name into $latest_minor_branch" \
+            --body "This PR merges the changes from $branch_name into $latest_minor_branch." \
+            --base "$latest_minor_branch" \
+            --head "$branch_name" \
+            --reviewer "jessesquires"
 
-          # Sync Minor to Master
-          git checkout master
-          git merge --no-commit --no-ff "origin/$latest_minor_branch" || true
-          git commit -m "Merge $latest_minor_branch into master"
-          git push origin master
-
-          # Create Pull Request from HF to Minor
-          pr_title="Sync $hf_branch to $latest_minor_branch"
-          pr_body="This pull request merges changes from HF branch ($hf_branch) into Minor branch ($latest_minor_branch)."
-
-          echo "Creating pull request to sync HF into Minor..."
-          gh pr create --title "$pr_title" --body "$pr_body" --base "$latest_minor_branch" --head "$hf_branch"
+      - name: Create PR from Minor to Master
+        if: steps.determine_branches.outputs.BRANCH_TYPE == 'minor'
+        env:
+          GH_TOKEN: ${{ secrets.JEGANMERGE }}
+        run: |
+          branch_name=${GITHUB_REF#refs/heads/}
+          echo "Creating PR from $branch_name to master"
+          
+          gh pr create \
+            --title "Merge $branch_name into master" \
+            --body "This PR merges the changes from $branch_name into master." \
+            --base master \
+            --head "$branch_name" \
+            --reviewer "jessesquires"
