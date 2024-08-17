@@ -13,7 +13,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
-          GITHUB_TOKEN: ${{ secrets.JEGANMERGE }}
+          GH_TOKEN: ${{ secrets.JEGANMERGE }}
 
       - name: Check if branch is master
         id: check_branch
