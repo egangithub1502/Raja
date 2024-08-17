@@ -1,26 +1,44 @@
-name: Create Pull Requests for Branch Merging
+name: Sync branches with conflict handling
 
 on:
   push:
     branches:
-      - 'profit_dep_hf_*'
-      - 'profit_dep_minor_*'
+      - '*'
 
 jobs:
-  create-pr:
+  branch-sync:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
-          token: ${{ secrets.JEGANMERGE }}
+          fetch-depth: 0
 
-      - name: Fetch All Branches
+      - name: Set up git
         run: |
-          git fetch --all
+          # Extract the commit author and email from the GitHub environment
+          COMMITTER_NAME=$(git log -1 --pretty=format:'%an')
+          COMMITTER_EMAIL=$(git log -1 --pretty=format:'%ae')
+          
+          # Configure git with the committer's details
+          git config --global user.name "$COMMITTER_NAME"
+          git config --global user.email "$COMMITTER_EMAIL"
+          
+          echo "Configured git with user.name=$COMMITTER_NAME and user.email=$COMMITTER_EMAIL"
 
-      - name: Determine Branch Type and Latest Branches
+      - name: Check if direct commit to master
+        id: check_direct_commit
+        run: |
+          branch_name="${GITHUB_REF#refs/heads/}"
+          
+          if [ "$branch_name" == "master" ]; then
+            echo "Direct commit to master detected."
+            echo "DIRECT_COMMIT=true" >> $GITHUB_ENV
+          else
+            echo "DIRECT_COMMIT=false" >> $GITHUB_ENV
+          fi
+
+      - name: Determine Branches
         id: determine_branches
         run: |
           # Extract branch name from the reference
@@ -29,51 +47,72 @@ jobs:
           # Determine if this is an HF or minor branch
           case "$branch_name" in
             profit_dep_hf_*)
-              BRANCH_TYPE="hf"
+              echo "BRANCH_TYPE=hf" >> $GITHUB_ENV
               ;;
             profit_dep_minor_*)
-              BRANCH_TYPE="minor"
+              echo "BRANCH_TYPE=minor" >> $GITHUB_ENV
               ;;
             *)
-              BRANCH_TYPE="none"
+              echo "BRANCH_TYPE=none" >> $GITHUB_ENV
               ;;
           esac
           
           echo "Branch Type: $BRANCH_TYPE"
           
           if [ "$BRANCH_TYPE" == "hf" ]; then
-            # Get the latest HF branch
             latest_hf_branch=$(git branch -r | grep 'origin/profit_dep_hf_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
-            echo "Latest HF branch: $latest_hf_branch"
+            echo "latest_hf_branch=$latest_hf_branch" >> $GITHUB_ENV
             
-            # Get the corresponding minor branch based on date suffix
-            date_suffix="${branch_name##*_}"
-            latest_minor_branch=$(git branch -r | grep "origin/profit_dep_minor_" | sed 's/origin\///' | sort -r | head -n 1 | xargs)
-            echo "Latest minor branch: $latest_minor_branch"
-            
-            # Check if the latest_minor_branch was found
-            if [ -z "$latest_minor_branch" ]; then
-              echo "No matching minor branch found."
-              exit 1
-            fi
-
+            latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
             echo "latest_minor_branch=$latest_minor_branch" >> $GITHUB_ENV
           elif [ "$BRANCH_TYPE" == "minor" ]; then
-            # For minor branches, find the latest master branch
-            latest_master_branch="master"
-            echo "latest_master_branch=$latest_master_branch" >> $GITHUB_ENV
+            latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
+            echo "latest_minor_branch=$latest_minor_branch" >> $GITHUB_ENV
           fi
 
-      - name: Check if branch is master
-        id: check_branch
+      - name: Sync branches
+        if: env.DIRECT_COMMIT == 'false'
         run: |
-          branch_name=${GITHUB_REF#refs/heads/}
-          echo "Checking branch: $branch_name"
-          if [ "$branch_name" = "master" ]; then
-            echo "Direct commit to master detected. No action taken."
+          # Fetch and merge branches based on type
+          git fetch origin
+          branch_name="${GITHUB_REF#refs/heads/}"
+          BRANCH_TYPE=$(echo ${{ steps.determine_branches.outputs.BRANCH_TYPE }})
+
+          if [ "$BRANCH_TYPE" == "hf" ]; then
+            # Merge HF into minor
+            git checkout ${{ env.latest_minor_branch }}
+            git merge --no-commit --no-ff origin/$branch_name || true
             
+            if git ls-files -u | grep -q .; then
+              echo "Merge conflict detected."
+              conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
+              committer=$(git log -1 --pretty=format:'%an')
+              
+              message="Merge conflict detected when merging HF into minor.\nConflicting files:\n$conflict_files\nLast committer: $committer"
+              curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+              
+              exit 1
+            fi
+            git commit -m "Merge $branch_name into ${{ env.latest_minor_branch }}"
+            git push origin ${{ env.latest_minor_branch }}
+          elif [ "$BRANCH_TYPE" == "minor" ]; then
+            # Merge minor into master
+            git checkout master
+            git merge --no-commit --no-ff origin/$branch_name || true
+            
+            if git ls-files -u | grep -q .; then
+              echo "Merge conflict detected."
+              conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
+              committer=$(git log -1 --pretty=format:'%an')
+              
+              message="Merge conflict detected when merging minor into master.\nConflicting files:\n$conflict_files\nLast committer: $committer"
+              curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+              
+              exit 1
+            fi
+            git commit -m "Merge $branch_name into master"
+            git push origin master
           fi
-        continue-on-error: false
 
       - name: Create PR from HF to Minor
         if: steps.determine_branches.outputs.BRANCH_TYPE == 'hf'
@@ -81,13 +120,12 @@ jobs:
           GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
           branch_name=${GITHUB_REF#refs/heads/}
-          echo "Creating PR from $branch_name to $latest_minor_branch"
-          echo "latest_minor_branch=$latest_minor_branch"
+          echo "Creating PR from $branch_name to ${{ env.latest_minor_branch }}"
           
           gh pr create \
-            --title "Merge $branch_name into $latest_minor_branch" \
-            --body "This PR merges the changes from $branch_name into $latest_minor_branch." \
-            --base "$latest_minor_branch" \
+            --title "Merge $branch_name into ${{ env.latest_minor_branch }}" \
+            --body "This PR merges the changes from $branch_name into ${{ env.latest_minor_branch }}." \
+            --base ${{ env.latest_minor_branch }} \
             --head "$branch_name" \
             --reviewer "jessesquires"
 
@@ -105,3 +143,13 @@ jobs:
             --base master \
             --head "$branch_name" \
             --reviewer "jessesquires"
+
+      - name: Notify Google Chat on Success
+        if: success()
+        run: |
+          curl -X POST -H 'Content-Type: application/json' --data '{"text": "Sync branches job succeeded."}' ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+
+      - name: Notify Google Chat on Failure
+        if: failure()
+        run: |
+          echo "Failure notification is not needed; detailed conflict messages are already sent."
