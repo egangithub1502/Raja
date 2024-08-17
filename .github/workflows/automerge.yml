@@ -68,6 +68,7 @@ jobs:
         id: check_branch
         run: |
           branch_name=${GITHUB_REF#refs/heads/}
+          echo "Checking branch: $branch_name"
           if [ "$branch_name" = "master" ]; then
             echo "Direct commit to master detected. No action taken."
             exit 0
