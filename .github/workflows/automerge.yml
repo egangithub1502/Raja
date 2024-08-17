@@ -20,7 +20,17 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install gh -y
-          
+
+      - name: Determine Latest Minor Branch
+        id: get_latest_minor_branch
+        run: |
+          branch_name=${GITHUB_REF#refs/heads/}
+          if [[ "$branch_name" == profit_dep_hf_* ]]; then
+            date_suffix="${branch_name##*_}"
+            latest_minor_branch=$(gh branch list | grep "profit_dep_minor_" | grep "$date_suffix" | sort -r | head -n 1)
+            echo "latest_minor_branch=$latest_minor_branch" >> $GITHUB_ENV
+          fi
+
       - name: Check if branch is master
         id: check_branch
         run: |
@@ -37,13 +47,12 @@ jobs:
           GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
           branch_name=${GITHUB_REF#refs/heads/}
-          minor_branch="profit_dep_minor_${branch_name##*_}"
-          echo "Creating PR from $branch_name to $minor_branch"
+          echo "Creating PR from $branch_name to $latest_minor_branch"
           
           gh pr create \
-            --title "Merge $branch_name into $minor_branch" \
-            --body "This PR merges the changes from $branch_name into $minor_branch." \
-            --base $minor_branch \
+            --title "Merge $branch_name into $latest_minor_branch" \
+            --body "This PR merges the changes from $branch_name into $latest_minor_branch." \
+            --base $latest_minor_branch \
             --head $branch_name \
             --reviewer "jessesquires"
 
