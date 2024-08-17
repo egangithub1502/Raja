@@ -4,13 +4,11 @@ on:
   push:
     branches:
       - 'profit_dep_hf_*'
+      - 'profit_dep_minor_*'
 
 jobs:
-  create-pr-hf-to-minor:
+  create-pr:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -26,111 +24,85 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
 
-      - name: Sync branches
+      - name: Determine Branch Type
+        id: branch_type
         run: |
           branch_name="${GITHUB_REF#refs/heads/}"
-          
           case "$branch_name" in
             profit_dep_hf_*)
-              BRANCH_TYPE="hf"
+              echo "BRANCH_TYPE=hf" >> $GITHUB_ENV
               ;;
             profit_dep_minor_*)
-              BRANCH_TYPE="minor"
+              echo "BRANCH_TYPE=minor" >> $GITHUB_ENV
               ;;
             *)
-              BRANCH_TYPE="none"
+              echo "BRANCH_TYPE=none" >> $GITHUB_ENV
               ;;
           esac
 
-          echo "Branch Type: $BRANCH_TYPE"
-          
-          if [ "$BRANCH_TYPE" == "hf" ]; then
-            latest_hf_branch=$(git branch -r | grep 'origin/profit_dep_hf_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
-            latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
+      - name: Handle HF Branches
+        if: env.BRANCH_TYPE == 'hf'
+        run: |
+          latest_hf_branch="${GITHUB_REF#refs/heads/}"
+          latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
 
-            git fetch origin
-            git checkout "$latest_minor_branch"
-            git merge --no-commit --no-ff "origin/$latest_hf_branch" || true
-            
-            if git ls-files -u | grep -q .; then
-              echo "Merge conflict detected."
-              conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
-              committer=$(git log -1 --pretty=format:'%an')
-              temp_branch="temp/hf-to-minor-conflict"
-              
-              git checkout -b "$temp_branch"
-              git add -A
-              git commit -m "Temporary commit to handle merge conflict"
-              git push origin "$temp_branch"
-              
-              message="Merge conflict detected when merging HF into minor.\nConflicting files:\n$conflict_files\nLast committer: $committer\nTemporary branch created: $temp_branch"
-              curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+          git fetch origin
+          git checkout "$latest_minor_branch"
+          git merge --no-commit --no-ff "origin/$latest_hf_branch" || true
 
-              echo "Creating pull request for conflict resolution..."
-              gh pr create --title "Resolve conflicts between $latest_hf_branch and $latest_minor_branch" --body "This PR resolves conflicts between HF and Minor branches." --base "$latest_minor_branch" --head "$temp_branch"
-              exit 1
-            fi
+          if git ls-files -u | grep -q .; then
+            echo "Merge conflict detected."
+            conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
+            committer=$(git log -1 --pretty=format:'%an')
+            temp_branch="temp/hf-to-minor-conflict"
 
-            git commit -m "Merge $latest_hf_branch into $latest_minor_branch"
-            git push origin "$latest_minor_branch"
+            git checkout -b "$temp_branch"
+            git add -A
+            git commit -m "Temporary commit to handle merge conflict"
+            git push origin "$temp_branch"
 
-            echo "Checking if a pull request is needed..."
-            latest_commit_hf=$(git log -1 --format="%H" "origin/$latest_hf_branch")
-            latest_commit_minor=$(git log -1 --format="%H" "origin/$latest_minor_branch")
+            message="Merge conflict detected when merging HF into Minor.\nConflicting files:\n$conflict_files\nLast committer: $committer\nTemporary branch created: $temp_branch"
+            curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
 
-            if [ "$latest_commit_hf" != "$latest_commit_minor" ]; then
-              echo "Creating pull request to sync HF to Minor..."
-              gh pr create --title "Sync HF Branch to Minor Branch" --body "This PR synchronizes the latest HF branch into the minor branch." --base "$latest_minor_branch" --head "$latest_hf_branch"
-            else
-              echo "No new changes to create a pull request."
-            fi
-
-            echo "Waiting for manual review and merge..."
-            echo "Please merge the PR manually before proceeding to the next step."
+            echo "Creating pull request for conflict resolution..."
+            gh pr create --title "Resolve conflicts between $latest_hf_branch and $latest_minor_branch" --body "This PR resolves conflicts between HF and Minor branches." --base "$latest_minor_branch" --head "$temp_branch"
+            exit 1
           fi
 
-  create-pr-minor-to-master:
-    runs-on: ubuntu-latest
-    needs: create-pr-hf-to-minor
-    if: ${{ github.event.inputs.pr_merged == 'true' }}
-    permissions:
-      contents: write
-      pull-requests: write
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+          git commit -m "Merge $latest_hf_branch into $latest_minor_branch"
+          git push origin "$latest_minor_branch"
 
-      - name: Set up git
-        run: |
-          git config --global user.name 'egangithub1502'
-          git config --global user.email '2010177071b@gmail.com'
+          # Ensure there are new commits to sync
+          new_commits=$(git log --oneline "origin/$latest_hf_branch" ^"origin/$latest_minor_branch" | wc -l)
+          if [ "$new_commits" -gt 0 ]; then
+            echo "Creating pull request to sync HF to Minor..."
+            gh pr create --title "Sync HF Branch to Minor Branch" --body "This PR synchronizes the latest HF branch into the Minor branch." --base "$latest_minor_branch" --head "$latest_hf_branch"
+          else
+            echo "No new commits to sync from HF to Minor."
+          fi
 
-      - name: Set up GitHub CLI
+      - name: Handle Minor Branches
+        if: env.BRANCH_TYPE == 'minor'
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
-
-      - name: Sync branches and create PR
-        run: |
-          latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
+          latest_minor_branch="${GITHUB_REF#refs/heads/}"
+          latest_master_branch="master"
 
           git fetch origin
           git checkout master
           git merge --no-commit --no-ff "origin/$latest_minor_branch" || true
-          
+
           if git ls-files -u | grep -q .; then
             echo "Merge conflict detected."
             conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
             committer=$(git log -1 --pretty=format:'%an')
             temp_branch="temp/minor-to-master-conflict"
-            
+
             git checkout -b "$temp_branch"
             git add -A
             git commit -m "Temporary commit to handle merge conflict"
             git push origin "$temp_branch"
-            
-            message="Merge conflict detected when merging minor into master.\nConflicting files:\n$conflict_files\nLast committer: $committer\nTemporary branch created: $temp_branch"
+
+            message="Merge conflict detected when merging Minor into Master.\nConflicting files:\n$conflict_files\nLast committer: $committer\nTemporary branch created: $temp_branch"
             curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
 
             echo "Creating pull request for conflict resolution..."
@@ -141,5 +113,11 @@ jobs:
           git commit -m "Merge $latest_minor_branch into master"
           git push origin master
 
-          echo "Creating pull request to sync Minor to Master..."
-          gh pr create --title "Sync Minor Branch to Master Branch" --body "This PR synchronizes the latest Minor branch into the master branch." --base master --head "$latest_minor_branch"
+          # Ensure there are new commits to sync
+          new_commits=$(git log --oneline "origin/$latest_minor_branch" ^"origin/master" | wc -l)
+          if [ "$new_commits" -gt 0 ]; then
+            echo "Creating pull request to sync Minor to Master..."
+            gh pr create --title "Sync Minor Branch to Master Branch" --body "This PR synchronizes the latest Minor branch into the Master branch." --base master --head "$latest_minor_branch"
+          else
+            echo "No new commits to sync from Minor to Master."
+          fi
