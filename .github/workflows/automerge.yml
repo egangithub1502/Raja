@@ -82,6 +82,7 @@ jobs:
         run: |
           branch_name=${GITHUB_REF#refs/heads/}
           echo "Creating PR from $branch_name to $latest_minor_branch"
+          echo "latest_minor_branch=$latest_minor_branch"
           
           gh pr create \
             --title "Merge $branch_name into $latest_minor_branch" \
