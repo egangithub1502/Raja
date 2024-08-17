@@ -109,8 +109,8 @@ jobs:
             --json url \
             | jq -r '.url')
           echo "PR created: $pr_url"
-      - name: Wait for PR approval and merge
-        if: env.BRANCH_TYPE == 'hf' || env.BRANCH_TYPE == 'minor'
+      - name: Wait for HF to Minor PR approval and merge
+        if: env.BRANCH_TYPE == 'hf'
         env:
           GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
@@ -123,7 +123,28 @@ jobs:
               approved=$(echo "$reviews" | jq -r '.[] | select(.state == "APPROVED")')
               if [ -n "$approved" ]; then
                 echo "PR approved"
-                gh pr merge "$pr_url" --merge
+                gh pr merge "$pr_url" --merge --admin
+                break
+              fi
+            fi
+            echo "Waiting for PR approval..."
+            sleep 30
+          done
+      - name: Wait for Minor to Master PR approval and merge
+        if: env.BRANCH_TYPE == 'minor'
+        env:
+          GH_TOKEN: ${{ secrets.JEGANMERGE }}
+        run: |
+          branch_name=${GITHUB_REF#refs/heads/}
+          pr_url=$(gh pr view --json url --jq '.url')
+          while true; do
+            pr_state=$(gh pr view "$pr_url" --json mergeStateStatus --jq '.mergeStateStatus')
+            if [ "$pr_state" == "CLEAN" ]; then
+              reviews=$(gh pr view "$pr_url" --json reviews --jq '.reviews')
+              approved=$(echo "$reviews" | jq -r '.[] | select(.state == "APPROVED")')
+              if [ -n "$approved" ]; then
+                echo "PR approved"
+                gh pr merge "$pr_url" --merge --admin
                 break
               fi
             fi
