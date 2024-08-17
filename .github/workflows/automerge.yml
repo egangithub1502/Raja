@@ -73,7 +73,7 @@ jobs:
             echo "Direct commit to master detected. No action taken."
             exit 0
           fi
-        continue-on-error: true
+        continue-on-error: false
 
       - name: Create PR from HF to Minor
         if: steps.determine_branches.outputs.BRANCH_TYPE == 'hf'
