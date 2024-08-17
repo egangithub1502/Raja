@@ -1,13 +1,12 @@
-name: Sync Branches
+name: Sync HF to Minor and Master
 
 on:
   push:
     branches:
       - 'profit_dep_hf_*'
-      - 'profit_dep_minor_*'
 
 jobs:
-  create-pr:
+  sync-and-create-pr:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -20,104 +19,37 @@ jobs:
           git config --global user.name 'egangithub1502'
           git config --global user.email '2010177071b@gmail.com'
 
-      - name: Set up GitHub CLI
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
-
       - name: Determine Branch Type
         id: branch_type
         run: |
           branch_name="${GITHUB_REF#refs/heads/}"
-          case "$branch_name" in
-            profit_dep_hf_*)
-              echo "BRANCH_TYPE=hf" >> $GITHUB_ENV
-              ;;
-            profit_dep_minor_*)
-              echo "BRANCH_TYPE=minor" >> $GITHUB_ENV
-              ;;
-            *)
-              echo "BRANCH_TYPE=none" >> $GITHUB_ENV
-              ;;
-          esac
+          if [[ "$branch_name" == profit_dep_hf_* ]]; then
+            echo "BRANCH_TYPE=hf" >> $GITHUB_ENV
+          else
+            echo "BRANCH_TYPE=none" >> $GITHUB_ENV
+          fi
 
-      - name: Handle HF Branches
+      - name: Sync HF to Minor
         if: env.BRANCH_TYPE == 'hf'
         run: |
-          latest_hf_branch="${GITHUB_REF#refs/heads/}"
+          hf_branch="${GITHUB_REF#refs/heads/}"
           latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
 
           git fetch origin
           git checkout "$latest_minor_branch"
-          git merge --no-commit --no-ff "origin/$latest_hf_branch" || true
-
-          if git ls-files -u | grep -q .; then
-            echo "Merge conflict detected."
-            conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
-            committer=$(git log -1 --pretty=format:'%an')
-            temp_branch="temp/hf-to-minor-conflict"
-
-            git checkout -b "$temp_branch"
-            git add -A
-            git commit -m "Temporary commit to handle merge conflict"
-            git push origin "$temp_branch"
-
-            message="Merge conflict detected when merging HF into Minor.\nConflicting files:\n$conflict_files\nLast committer: $committer\nTemporary branch created: $temp_branch"
-            curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
-
-            echo "Creating pull request for conflict resolution..."
-            gh pr create --title "Resolve conflicts between $latest_hf_branch and $latest_minor_branch" --body "This PR resolves conflicts between HF and Minor branches." --base "$latest_minor_branch" --head "$temp_branch"
-            exit 1
-          fi
-
-          git commit -m "Merge $latest_hf_branch into $latest_minor_branch"
+          git merge --no-commit --no-ff "origin/$hf_branch" || true
+          git commit -m "Merge $hf_branch into $latest_minor_branch"
           git push origin "$latest_minor_branch"
 
-          # Ensure there are new commits to sync
-          new_commits=$(git log --oneline "origin/$latest_hf_branch" ^"origin/$latest_minor_branch" | wc -l)
-          if [ "$new_commits" -gt 0 ]; then
-            echo "Creating pull request to sync HF to Minor..."
-            gh pr create --title "Sync HF Branch to Minor Branch" --body "This PR synchronizes the latest HF branch into the Minor branch." --base "$latest_minor_branch" --head "$latest_hf_branch"
-          else
-            echo "No new commits to sync from HF to Minor."
-          fi
-
-      - name: Handle Minor Branches
-        if: env.BRANCH_TYPE == 'minor'
-        run: |
-          latest_minor_branch="${GITHUB_REF#refs/heads/}"
-          latest_master_branch="master"
-
-          git fetch origin
+          # Sync Minor to Master
           git checkout master
           git merge --no-commit --no-ff "origin/$latest_minor_branch" || true
-
-          if git ls-files -u | grep -q .; then
-            echo "Merge conflict detected."
-            conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
-            committer=$(git log -1 --pretty=format:'%an')
-            temp_branch="temp/minor-to-master-conflict"
-
-            git checkout -b "$temp_branch"
-            git add -A
-            git commit -m "Temporary commit to handle merge conflict"
-            git push origin "$temp_branch"
-
-            message="Merge conflict detected when merging Minor into Master.\nConflicting files:\n$conflict_files\nLast committer: $committer\nTemporary branch created: $temp_branch"
-            curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
-
-            echo "Creating pull request for conflict resolution..."
-            gh pr create --title "Resolve conflicts between $latest_minor_branch and master" --body "This PR resolves conflicts between Minor and Master branches." --base master --head "$temp_branch"
-            exit 1
-          fi
-
           git commit -m "Merge $latest_minor_branch into master"
           git push origin master
 
-          # Ensure there are new commits to sync
-          new_commits=$(git log --oneline "origin/$latest_minor_branch" ^"origin/master" | wc -l)
-          if [ "$new_commits" -gt 0 ]; then
-            echo "Creating pull request to sync Minor to Master..."
-            gh pr create --title "Sync Minor Branch to Master Branch" --body "This PR synchronizes the latest Minor branch into the Master branch." --base master --head "$latest_minor_branch"
-          else
-            echo "No new commits to sync from Minor to Master."
-          fi
+          # Create Pull Request from HF to Minor
+          pr_title="Sync $hf_branch to $latest_minor_branch"
+          pr_body="This pull request merges changes from HF branch ($hf_branch) into Minor branch ($latest_minor_branch)."
+
+          echo "Creating pull request to sync HF into Minor..."
+          gh pr create --title "$pr_title" --body "$pr_body" --base "$latest_minor_branch" --head "$hf_branch"
