@@ -24,7 +24,7 @@ jobs:
 
       - name: Set up GitHub CLI
         run: |
-          echo "${GH_TOKEN}" | gh auth login --with-token
+          echo "${JEGANMERGE}" | gh auth login --with-token
 
       - name: Determine Branch Type
         id: branch_type
