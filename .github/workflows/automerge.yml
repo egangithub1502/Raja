@@ -27,7 +27,7 @@ jobs:
           branch_name=${GITHUB_REF#refs/heads/}
           if [[ "$branch_name" == profit_dep_hf_* ]]; then
             date_suffix="${branch_name##*_}"
-            latest_minor_branch=$(gh branch list --format '%(refname:short)' | grep "profit_dep_minor_" | grep "$date_suffix" | sort -r | head -n 1)
+            latest_minor_branch=$(git branch -r | grep "origin/profit_dep_minor_" | grep "$date_suffix" | sed 's/origin\///' | sort -r | head -n 1)
             if [ -z "$latest_minor_branch" ]; then
               echo "No matching minor branch found."
               exit 1
