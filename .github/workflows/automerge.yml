@@ -54,6 +54,8 @@ jobs:
               echo "BRANCH_TYPE=none" >> $GITHUB_ENV
               ;;
           esac
+          
+          echo "Branch Type: $BRANCH_TYPE"
 
       - name: Fetch and merge branches based on type
         if: env.DIRECT_COMMIT == 'false'
@@ -136,10 +138,22 @@ jobs:
           echo "PR URL: $pr_url"
           curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
 
+      - name: Check PR Status
+        uses: jwalton/gh-find-current-pr@master
+        id: findPr
+        with:
+          state: open
+
+      - name: Check if PR is Merged
+        if: success() && steps.findPr.outputs.number
+        run: echo "Your PR is ${PR}"
+        env:
+          PR: ${{ steps.findPr.outputs.pr }}
+
       - name: Notify Google Chat on Success
-        if: success()
+        if: success() && steps.findPr.outputs.number == ''
         run: |
-          curl -X POST -H 'Content-Type: application/json' --data '{"text": "Sync branches job succeeded."}' "$GOOGLE_CHAT_WEBHOOK_URL"
+          curl -X POST -H 'Content-Type: application/json' --data '{"text": "Successfully merged HF into Minor into Master."}' "$GOOGLE_CHAT_WEBHOOK_URL"
 
       - name: Notify Google Chat on Failure
         if: failure()
