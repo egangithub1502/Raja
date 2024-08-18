@@ -110,7 +110,7 @@ jobs:
             echo "PR URL: $pr_url"
             echo "pr_url=$pr_url" >> $GITHUB_ENV
             curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-      
+
       - name: Wait for HF to Minor PR merge
         if: env.BRANCH_TYPE == 'hf'
         id: wait_for_hf_to_minor_pr
@@ -131,7 +131,7 @@ jobs:
             fi
             sleep 30
           done
-          
+
       - name: Wait for Minor to Master PR merge
         if: env.BRANCH_TYPE == 'minor'
         id: wait_for_minor_to_master_pr
@@ -151,3 +151,4 @@ jobs:
               exit 1
             fi
             sleep 30
+          done
