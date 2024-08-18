@@ -80,8 +80,6 @@ jobs:
             fi
             git commit -m "Merge $branch_name into $latest_minor_branch"
             git push origin $latest_minor_branch
-            echo "PR_TYPE=hf_to_minor" >> $GITHUB_ENV
-            echo "PR_URL=$(gh pr list --state open --head $branch_name --base $latest_minor_branch --json url --jq '.[0].url')" >> $GITHUB_ENV
           elif [ "$BRANCH_TYPE" == "minor" ]; then
             git checkout master
             git merge --no-commit --no-ff origin/$branch_name || true
@@ -98,8 +96,6 @@ jobs:
             fi
             git commit -m "Merge $branch_name into master"
             git push origin master
-            echo "PR_TYPE=minor_to_master" >> $GITHUB_ENV
-            echo "PR_URL=$(gh pr list --state open --head $branch_name --base master --json url --jq '.[0].url')" >> $GITHUB_ENV
           fi
       - name: Create PR from HF to Minor
         if: env.BRANCH_TYPE == 'hf'
@@ -136,73 +132,23 @@ jobs:
           
           echo "PR URL: $pr_url"
           curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-      - name: Wait for PR Merge and Notify
-        if: env.PR_TYPE == 'hf_to_minor'
-        uses: actions/github-script@v6
+      - name: Check PR Status
+        uses: jwalton/gh-find-current-pr@master
+        id: findPr
         with:
-          script: |
-            const prUrl = process.env.PR_URL;
-            if (!prUrl) {
-              console.error('PR URL is missing');
-              process.exit(1);
-            }
-            
-            let prMerged = false;
-            while (!prMerged) {
-              const { data: pr } = await github.rest.pulls.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: prUrl.split('/').pop()
-              });
-              
-              if (pr.state === 'closed' && pr.merged) {
-                prMerged = true;
-                await github.rest.repos.createDispatchEvent({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  event_type: 'hf_minor_merged'
-                });
-              } else {
-                console.log('Waiting for PR to be merged...');
-                await new Promise(resolve => setTimeout(resolve, 60000)); // Wait for 1 minute
-              }
-            }
-      - name: Wait for Minor to Master PR Merge and Notify
-        if: env.PR_TYPE == 'minor_to_master'
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const prUrl = process.env.PR_URL;
-            if (!prUrl) {
-              console.error('PR URL is missing');
-              process.exit(1);
-            }
-            
-            let prMerged = false;
-            while (!prMerged) {
-              const { data: pr } = await github.rest.pulls.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: prUrl.split('/').pop()
-              });
-              
-              if (pr.state === 'closed' && pr.merged) {
-                prMerged = true;
-                await github.rest.repos.createDispatchEvent({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  event_type: 'minor_master_merged'
-                });
-              } else {
-                console.log('Waiting for PR to be merged...');
-                await new Promise(resolve => setTimeout(resolve, 60000)); // Wait for 1 minute
-              }
-            }
-      - name: Notify Google Chat on HF to Minor Merge
-        if: github.event_name == 'repository_dispatch' && github.event.action == 'hf_minor_merged'
+          state: open
+
+      - name: Check if PR is Merged
+        if: success() && steps.findPr.outputs.number
+        run: echo "Your PR is ${PR}"
+        env:
+          PR: ${{ steps.findPr.outputs.pr }}
+
+      - name: Notify Google Chat on Success
+        if: success() && steps.findPr.outputs.number == ''
         run: |
-          curl -X POST -H 'Content-Type: application/json' --data '{"text": "Successfully merged HF into Minor."}' "$GOOGLE_CHAT_WEBHOOK_URL"
-      - name: Notify Google Chat on Minor to Master Merge
-        if: github.event_name == 'repository_dispatch' && github.event.action == 'minor_master_merged'
+          curl -X POST -H 'Content-Type: application/json' --data '{"text": "Successfully merged HF into Minor into Master."}' "$GOOGLE_CHAT_WEBHOOK_URL"
+      - name: Notify Google Chat on Failure
+        if: failure()
         run: |
-          curl -X POST -H 'Content-Type: application/json' --data '{"text": "Successfully merged Minor into Master."}' "$GOOGLE_CHAT_WEBHOOK_URL"
+          echo "Failure notification is not needed; detailed conflict messages are already sent."
