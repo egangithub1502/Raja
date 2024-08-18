@@ -80,7 +80,7 @@ jobs:
             echo "PR URL: $pr_url"
             echo "pr_url=$pr_url" >> $GITHUB_ENV
             curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-
+          fi
           elif [ "$BRANCH_TYPE" == "minor" ]; then
             # Fetch latest changes
             git fetch --all
