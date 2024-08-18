@@ -25,6 +25,7 @@ jobs:
           git config --global user.email "$COMMITTER_EMAIL"
           
           echo "Configured git with user.name=$COMMITTER_NAME and user.email=$COMMITTER_EMAIL"
+          
       - name: Check if direct commit to master
         id: check_direct_commit
         run: |
@@ -36,6 +37,7 @@ jobs:
           else
             echo "DIRECT_COMMIT=false" >> $GITHUB_ENV
           fi
+          
       - name: Determine branch type
         id: determine_branches
         run: |
@@ -54,6 +56,7 @@ jobs:
           esac
           
           echo "Branch Type: $BRANCH_TYPE"
+          
       - name: Fetch and merge branches based on type
         if: env.DIRECT_COMMIT == 'false'
         run: |
@@ -78,6 +81,7 @@ jobs:
               
               exit 1
             fi
+            
             git commit -m "Merge $branch_name into $latest_minor_branch"
             git push origin $latest_minor_branch
 
@@ -86,7 +90,7 @@ jobs:
               --title "Merge $branch_name into $latest_minor_branch" \
               --body "This PR merges the changes from $branch_name into $latest_minor_branch." \
               --base "$latest_minor_branch" \
-              --head "$branch_name" )
+              --head "$branch_name")
             
             echo "PR URL: $pr_url"
             curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
@@ -102,8 +106,6 @@ jobs:
                 sleep 60
               fi
             done
-
-            curl -X POST -H 'Content-Type: application/json' --data '{"text": "Successfully merged HF into Minor."}' "$GOOGLE_CHAT_WEBHOOK_URL"
 
           elif [ "$BRANCH_TYPE" == "minor" ]; then
             git checkout master
@@ -119,6 +121,7 @@ jobs:
               
               exit 1
             fi
+            
             git commit -m "Merge $branch_name into master"
             git push origin master
 
@@ -127,7 +130,7 @@ jobs:
               --title "Merge $branch_name into master" \
               --body "This PR merges the changes from $branch_name into master." \
               --base master \
-              --head "$branch_name" )
+              --head "$branch_name")
             
             echo "PR URL: $pr_url"
             curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
@@ -137,6 +140,7 @@ jobs:
               pr_status=$(gh pr view $pr_url --json state -q ".state")
               if [ "$pr_status" == "MERGED" ]; then
                 echo "PR $pr_url has been merged."
+                curl -X POST -H 'Content-Type: application/json' --data '{"text": "Successfully merged Minor into Master."}' "$GOOGLE_CHAT_WEBHOOK_URL"
                 break
               else
                 echo "Waiting for PR $pr_url to be merged..."
@@ -144,4 +148,14 @@ jobs:
               fi
             done
 
-            curl -X POST -H 'Content-Type: application/json' --data '{"text": "Successfully merged Minor into Master."}' "$GOOGLE_CHAT_WEBHOOK_URL"
+      - name: Notify Google Chat on HF to Minor PR Created
+        if: success() && github.event_name == 'push' && steps.determine_branches.outputs.BRANCH_TYPE == 'hf'
+        run: |
+          echo "Notifying Google Chat about HF to Minor PR."
+          curl -X POST -H 'Content-Type: application/json' --data '{"text": "Pull request created to merge HF into Minor."}' "$GOOGLE_CHAT_WEBHOOK_URL"
+
+      - name: Notify Google Chat on Minor to Master PR Created
+        if: success() && github.event_name == 'push' && steps.determine_branches.outputs.BRANCH_TYPE == 'minor'
+        run: |
+          echo "Notifying Google Chat about Minor to Master PR."
+          curl -X POST -H 'Content-Type: application/json' --data '{"text": "Pull request created to merge Minor into Master."}' "$GOOGLE_CHAT_WEBHOOK_URL"
