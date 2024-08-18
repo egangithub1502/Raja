@@ -26,7 +26,7 @@ jobs:
           git config --global user.email "$COMMITTER_EMAIL"
           
           echo "Configured git with user.name=$COMMITTER_NAME and user.email=$COMMITTER_EMAIL"
-      
+
       - name: Check if direct commit to master
         id: check_direct_commit
         run: |
@@ -38,13 +38,14 @@ jobs:
           else
             echo "DIRECT_COMMIT=false" >> $GITHUB_ENV
           fi
-      
+
       - name: Determine branch type
         id: determine_branches
         run: |
           branch_name="${GITHUB_REF#refs/heads/}"
+    
           echo "Branch name: $branch_name"
-          
+
           case "$branch_name" in
             profit_dep_hf_*)
               BRANCH_TYPE="hf"
@@ -56,61 +57,77 @@ jobs:
               BRANCH_TYPE="none"
               ;;
           esac
-
+    
           echo "Branch Type: $BRANCH_TYPE"
-          echo "BRANCH_TYPE=$BRANCH_TYPE" >> $GITHUB_ENV
-      
-      - name: Handle HF branch
+    
+          if [ "$BRANCH_TYPE" == "hf" ]; then
+            latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
+            echo "Latest minor branch: $latest_minor_branch"
+            
+            git checkout $latest_minor_branch
+            git merge --no-commit --no-ff origin/$branch_name || true
+            
+            # Debug information
+            git status
+            git diff --name-only --diff-filter=U
+            
+            if git ls-files -u | grep -q .; then
+              echo "Merge conflict detected."
+              conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
+              committer=$(git log -1 --pretty=format:'%an')
+              
+              message="Merge conflict detected when merging HF into minor.\nConflicting files:\n$conflict_files\nLast committer: $committer"
+              curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+              
+              exit 1
+            fi
+            git commit -m "Merge $branch_name into $latest_minor_branch"
+            git push origin $latest_minor_branch
+          elif [ "$BRANCH_TYPE" == "minor" ]; then
+            git checkout master
+            git merge --no-commit --no-ff origin/$branch_name || true
+            
+            # Debug information
+            git status
+            git diff --name-only --diff-filter=U
+            
+            if git ls-files -u | grep -q .; then
+              echo "Merge conflict detected."
+              conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
+              committer=$(git log -1 --pretty=format:'%an')
+              
+              message="Merge conflict detected when merging minor into master.\nConflicting files:\n$conflict_files\nLast committer: $committer"
+              curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+              
+              exit 1
+            fi
+            git commit -m "Merge $branch_name into master"
+            git push origin master
+          fi
+
+      - name: Check for changes between HF and Minor branches
         if: env.BRANCH_TYPE == 'hf'
+        id: check_changes
         run: |
+          branch_name=${GITHUB_REF#refs/heads/}
           latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
-          echo "Latest minor branch: $latest_minor_branch"
           
-          git checkout $latest_minor_branch
-          git merge --no-commit --no-ff origin/${GITHUB_REF#refs/heads/} || true
+          # Fetch all branches
+          git fetch --all
           
-          # Debug information
-          git status
-          git diff --name-only --diff-filter=U
+          # Check if there are commits in HF that are not in Minor
+          commit_count=$(git rev-list --count ${branch_name} ^${latest_minor_branch})
           
-          if git ls-files -u | grep -q .; then
-            echo "Merge conflict detected."
-            conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
-            committer=$(git log -1 --pretty=format:'%an')
-            
-            message="Merge conflict detected when merging HF into minor.\nConflicting files:\n$conflict_files\nLast committer: $committer"
-            curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-            
-            exit 1
+          if [ "$commit_count" -eq 0 ]; then
+            echo "No new commits between $branch_name and $latest_minor_branch."
+            echo "SKIP_PR=true" >> $GITHUB_ENV
+          else
+            echo "New commits detected between $branch_name and $latest_minor_branch."
+            echo "SKIP_PR=false" >> $GITHUB_ENV
           fi
-          git commit -m "Merge ${GITHUB_REF#refs/heads/} into $latest_minor_branch"
-          git push origin $latest_minor_branch
-      
-      - name: Handle Minor branch
-        if: env.BRANCH_TYPE == 'minor'
-        run: |
-          git checkout master
-          git merge --no-commit --no-ff origin/${GITHUB_REF#refs/heads/} || true
-          
-          # Debug information
-          git status
-          git diff --name-only --diff-filter=U
-          
-          if git ls-files -u | grep -q .; then
-            echo "Merge conflict detected."
-            conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
-            committer=$(git log -1 --pretty=format:'%an')
-            
-            message="Merge conflict detected when merging minor into master.\nConflicting files:\n$conflict_files\nLast committer: $committer"
-            curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-            
-            exit 1
-          fi
-          git commit -m "Merge ${GITHUB_REF#refs/heads/} into master"
-          git push origin master
-      
+
       - name: Create PR from HF to Minor
-        if: env.BRANCH_TYPE == 'hf'
+        if: env.BRANCH_TYPE == 'hf' && env.SKIP_PR != 'true'
         id: create_hf_to_minor_pr
         run: |
           branch_name=${GITHUB_REF#refs/heads/}
@@ -126,7 +143,7 @@ jobs:
           echo "PR URL: $pr_url"
           echo "pr_url=$pr_url" >> $GITHUB_ENV
           curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-      
+
       - name: Wait for HF to Minor PR merge
         if: env.BRANCH_TYPE == 'hf'
         id: wait_for_hf_to_minor_pr
@@ -147,7 +164,7 @@ jobs:
             fi
             sleep 30
           done
-      
+
       - name: Create PR from Minor to Master
         if: env.BRANCH_TYPE == 'minor'
         id: create_minor_to_master_pr
@@ -185,8 +202,8 @@ jobs:
             fi
             sleep 30
           done
-      
-      - name: Notify Google Chat on Failure
-        if: failure()
+
+      - name: Handle direct commits to master
+        if: env.DIRECT_COMMIT == 'true'
         run: |
-          echo "Failure notification is not needed; detailed conflict messages are already sent."
+          echo "Direct commit to master detected. Skipping further actions."
