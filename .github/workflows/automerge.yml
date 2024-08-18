@@ -26,22 +26,12 @@ jobs:
           
           echo "Configured git with user.name=$COMMITTER_NAME and user.email=$COMMITTER_EMAIL"
 
-      - name: Check if direct commit to master
-        id: check_direct_commit
-        run: |
-          branch_name="${GITHUB_REF#refs/heads/}"
-          
-          if [ "$branch_name" == "master" ]; then
-            echo "Direct commit to master detected."
-            echo "DIRECT_COMMIT=true" >> $GITHUB_ENV
-          else
-            echo "DIRECT_COMMIT=false" >> $GITHUB_ENV
-          fi
-
       - name: Determine branch type
         id: determine_branches
         run: |
           branch_name="${GITHUB_REF#refs/heads/}"
+          
+          echo "Branch Name: $branch_name" # Debug statement to show branch name
           
           if [[ "$branch_name" == profit_dep_hf_* ]]; then
             echo "BRANCH_TYPE=hf" >> $GITHUB_ENV
@@ -50,8 +40,9 @@ jobs:
           else
             echo "BRANCH_TYPE=none" >> $GITHUB_ENV
           fi
+          
           # Debug output to verify the branch type
-          echo "Branch Type: ${{ env.BRANCH_TYPE }}"
+          echo "Branch Type: $BRANCH_TYPE"
 
       - name: Fetch and merge branches based on type
         if: env.DIRECT_COMMIT == 'false'
@@ -59,7 +50,10 @@ jobs:
           git fetch origin
           branch_name="${GITHUB_REF#refs/heads/}"
           BRANCH_TYPE="${{ env.BRANCH_TYPE }}"
-
+          
+          echo "Branch Name in Fetch and Merge: $branch_name"
+          echo "Branch Type in Fetch and Merge: $BRANCH_TYPE"
+          
           if [ "$BRANCH_TYPE" == "hf" ]; then
             latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
             echo "Latest minor branch: $latest_minor_branch"
@@ -79,7 +73,7 @@ jobs:
             fi
             git commit -m "Merge $branch_name into $latest_minor_branch"
             git push origin $latest_minor_branch
-
+  
           elif [ "$BRANCH_TYPE" == "minor" ]; then
             git checkout master
             git merge --no-commit --no-ff origin/$branch_name || true
@@ -96,6 +90,8 @@ jobs:
             fi
             git commit -m "Merge $branch_name into master"
             git push origin master
+          fi
+
 
       - name: Create PR from HF to Minor
         if: env.BRANCH_TYPE == 'hf'
