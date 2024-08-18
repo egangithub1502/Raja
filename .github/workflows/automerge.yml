@@ -114,7 +114,7 @@ jobs:
             --title "Merge $branch_name into $latest_minor_branch" \
             --body "This PR merges the changes from $branch_name into $latest_minor_branch." \
             --base "$latest_minor_branch" \
-            --head "$branch_name" 
+            --head "$branch_name" )
           
           echo "PR URL: $pr_url"
           curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" $GOOGLE_CHAT_WEBHOOK_URL
@@ -132,7 +132,7 @@ jobs:
             --title "Merge $branch_name into master" \
             --body "This PR merges the changes from $branch_name into master." \
             --base master \
-            --head "$branch_name" 
+            --head "$branch_name" )
           
           echo "PR URL: $pr_url"
           curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" $GOOGLE_CHAT_WEBHOOK_URL
