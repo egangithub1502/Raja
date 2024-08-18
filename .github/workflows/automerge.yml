@@ -110,11 +110,14 @@ jobs:
           latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
           
           echo "Creating PR from $branch_name to $latest_minor_branch"
-          gh pr create \
+          pr_url=$(gh pr create \
             --title "Merge $branch_name into $latest_minor_branch" \
             --body "This PR merges the changes from $branch_name into $latest_minor_branch." \
             --base "$latest_minor_branch" \
-            --head "$branch_name"
+            --head "$branch_name" 
+          
+          echo "PR URL: $pr_url"
+          curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" $GOOGLE_CHAT_WEBHOOK_URL
 
       - name: Create PR from Minor to Master
         if: env.BRANCH_TYPE == 'minor'
@@ -125,11 +128,14 @@ jobs:
           branch_name=${GITHUB_REF#refs/heads/}
           
           echo "Creating PR from $branch_name to master"
-          gh pr create \
+          pr_url=$(gh pr create \
             --title "Merge $branch_name into master" \
             --body "This PR merges the changes from $branch_name into master." \
             --base master \
-            --head "$branch_name"
+            --head "$branch_name" 
+          
+          echo "PR URL: $pr_url"
+          curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" $GOOGLE_CHAT_WEBHOOK_URL
 
       - name: Notify Google Chat on Success
         if: success()
