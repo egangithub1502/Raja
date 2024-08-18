@@ -10,7 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GOOGLE_CHAT_WEBHOOK_URL: "https://chat.googleapis.com/v1/spaces/AAAAiN5o6yI/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=V37-y3Z6RgoenZeoHilnzBw9xmYPEI_O0e33MhaqvQA"
-      GH_TOKEN: ${{ secrets.JEGANMERGE }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -44,27 +43,24 @@ jobs:
         run: |
           branch_name="${GITHUB_REF#refs/heads/}"
           
-          case "$branch_name" in
-            profit_dep_hf_*)
-              echo "BRANCH_TYPE=hf" >> $GITHUB_ENV
-              ;;
-            profit_dep_minor_*)
-              echo "BRANCH_TYPE=minor" >> $GITHUB_ENV
-              ;;
-            *)
-              echo "BRANCH_TYPE=none" >> $GITHUB_ENV
-              ;;
-          esac
-          
-          echo "Branch Type: $BRANCH_TYPE"
+          if [[ "$branch_name" == profit_dep_hf_* ]]; then
+            echo "BRANCH_TYPE=hf" >> $GITHUB_ENV
+          elif [[ "$branch_name" == profit_dep_minor_* ]]; then
+            echo "BRANCH_TYPE=minor" >> $GITHUB_ENV
+          else
+            echo "BRANCH_TYPE=none" >> $GITHUB_ENV
+          fi
+
+          # Debug output to verify the branch type
+          echo "Branch Type: ${{ env.BRANCH_TYPE }}"
 
       - name: Fetch and merge branches based on type
         if: env.DIRECT_COMMIT == 'false'
         run: |
           git fetch origin
           branch_name="${GITHUB_REF#refs/heads/}"
-          BRANCH_TYPE="${{ steps.determine_branches.outputs.BRANCH_TYPE }}"
-          
+          BRANCH_TYPE="${{ env.BRANCH_TYPE }}"
+
           if [ "$BRANCH_TYPE" == "hf" ]; then
             latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
             echo "Latest minor branch: $latest_minor_branch"
@@ -105,6 +101,8 @@ jobs:
       - name: Create PR from HF to Minor
         if: env.BRANCH_TYPE == 'hf'
         id: create_hf_to_minor_pr
+        env:
+          GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
           branch_name=${GITHUB_REF#refs/heads/}
           latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
@@ -117,14 +115,13 @@ jobs:
             --head "$branch_name" )
           
           echo "PR URL: $pr_url"
-          echo "pr_url=$pr_url" >> $GITHUB_ENV
           curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
 
       - name: Wait for HF to Minor PR merge
         if: env.BRANCH_TYPE == 'hf'
         id: wait_for_hf_to_minor_pr
         run: |
-          pr_url=${{ env.pr_url }}
+          pr_url=${{ steps.create_hf_to_minor_pr.outputs.pr_url }}
           pr_number=$(basename "$pr_url")
           
           echo "Waiting for PR #$pr_number to be merged..."
@@ -144,6 +141,8 @@ jobs:
       - name: Create PR from Minor to Master
         if: env.BRANCH_TYPE == 'minor'
         id: create_minor_to_master_pr
+        env:
+          GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
           branch_name=${GITHUB_REF#refs/heads/}
           
@@ -155,14 +154,13 @@ jobs:
             --head "$branch_name" )
           
           echo "PR URL: $pr_url"
-          echo "pr_url=$pr_url" >> $GITHUB_ENV
           curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-      
+
       - name: Wait for Minor to Master PR merge
         if: env.BRANCH_TYPE == 'minor'
         id: wait_for_minor_to_master_pr
         run: |
-          pr_url=${{ env.pr_url }}
+          pr_url=${{ steps.create_minor_to_master_pr.outputs.pr_url }}
           pr_number=$(basename "$pr_url")
           
           echo "Waiting for PR #$pr_number to be merged..."
