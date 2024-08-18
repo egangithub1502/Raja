@@ -61,6 +61,8 @@ jobs:
           git fetch origin
           branch_name="${GITHUB_REF#refs/heads/}"
           BRANCH_TYPE="${{ steps.determine_branches.outputs.BRANCH_TYPE }}"
+          GOOGLE_CHAT_WEBHOOK_URL="https://chat.googleapis.com/v1/spaces/AAAAiN5o6yI/messages?key=<API_KEY>&token=<TOKEN>"
+          
           if [ "$BRANCH_TYPE" == "hf" ]; then
             latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
             echo "Latest minor branch: $latest_minor_branch"
@@ -74,7 +76,7 @@ jobs:
               committer=$(git log -1 --pretty=format:'%an')
               
               message="Merge conflict detected when merging HF into minor.\nConflicting files:\n$conflict_files\nLast committer: $committer"
-              curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+              curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" $GOOGLE_CHAT_WEBHOOK_URL
               
               exit 1
             fi
@@ -90,7 +92,7 @@ jobs:
               committer=$(git log -1 --pretty=format:'%an')
               
               message="Merge conflict detected when merging minor into master.\nConflicting files:\n$conflict_files\nLast committer: $committer"
-              curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+              curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" $GOOGLE_CHAT_WEBHOOK_URL
               
               exit 1
             fi
@@ -132,7 +134,8 @@ jobs:
       - name: Notify Google Chat on Success
         if: success()
         run: |
-          curl -X POST -H 'Content-Type: application/json' --data '{"text": "Sync branches job succeeded."}' ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+          GOOGLE_CHAT_WEBHOOK_URL="https://chat.googleapis.com/v1/spaces/AAAAiN5o6yI/messages?key=<API_KEY>&token=<TOKEN>"
+          curl -X POST -H 'Content-Type: application/json' --data '{"text": "Sync branches job succeeded."}' $GOOGLE_CHAT_WEBHOOK_URL
 
       - name: Notify Google Chat on Failure
         if: failure()
