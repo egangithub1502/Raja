@@ -117,7 +117,10 @@ jobs:
             --head "$branch_name" )
           
           echo "PR URL: $pr_url"
-          curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" $GOOGLE_CHAT_WEBHOOK_URL
+          echo "Google Chat Webhook URL: $GOOGLE_CHAT_WEBHOOK_URL"
+
+          curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+
 
       - name: Create PR from Minor to Master
         if: env.BRANCH_TYPE == 'minor'
@@ -135,7 +138,10 @@ jobs:
             --head "$branch_name" )
           
           echo "PR URL: $pr_url"
-          curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" $GOOGLE_CHAT_WEBHOOK_URL
+          echo "Google Chat Webhook URL: $GOOGLE_CHAT_WEBHOOK_URL"
+
+          curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+
 
       - name: Notify Google Chat on Success
         if: success()
