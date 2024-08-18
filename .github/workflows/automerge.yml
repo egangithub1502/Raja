@@ -147,3 +147,7 @@ jobs:
         if: failure()
         run: |
           echo "Failure notification is not needed; detailed conflict messages are already sent."
+      - name: Notify on Successful Merge to Master
+        if: success() && env.BRANCH_TYPE == 'minor'
+        run: |
+          curl -X POST -H 'Content-Type: application/json' --data '{"text": "We merged HF into minor Into master successfully."}' "$GOOGLE_CHAT_WEBHOOK_URL"
