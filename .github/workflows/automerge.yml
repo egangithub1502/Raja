@@ -25,7 +25,6 @@ jobs:
           git config --global user.email "$COMMITTER_EMAIL"
           
           echo "Configured git with user.name=$COMMITTER_NAME and user.email=$COMMITTER_EMAIL"
-      
       - name: Check if direct commit to master
         id: check_direct_commit
         run: |
@@ -37,7 +36,6 @@ jobs:
           else
             echo "DIRECT_COMMIT=false" >> $GITHUB_ENV
           fi
-      
       - name: Determine branch type
         id: determine_branches
         run: |
@@ -57,7 +55,6 @@ jobs:
           esac
           
           echo "Branch Type: $BRANCH_TYPE"
-      
       - name: Fetch and merge branches based on type
         if: env.DIRECT_COMMIT == 'false'
         run: |
@@ -103,7 +100,6 @@ jobs:
             git commit -m "Merge $branch_name into master"
             git push origin master
           fi
-      
       - name: Create PR from HF to Minor
         if: env.BRANCH_TYPE == 'hf'
         id: create_hf_to_minor_pr
@@ -121,16 +117,16 @@ jobs:
             --head "$branch_name" \
             --reviewer "jessesquires" \
             --json url --jq '.url')
-
-          # Post the PR link to Google Chat
-          curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Created PR: $pr_url\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
-      
+          
+          # Post PR link to Google Chat
+          curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull Request created: $pr_url\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
       - name: Wait for PR approval and merge (HF to Minor)
         if: steps.create_hf_to_minor_pr.outcome == 'success' && env.BRANCH_TYPE == 'hf'
         env:
           GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
           branch_name=${GITHUB_REF#refs/heads/}
+          latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
           pr_url=$(gh pr view --json url --jq '.url')
           
           # Wait for the PR to be reviewed and approved
@@ -146,7 +142,6 @@ jobs:
           done
           # Merge the PR after approval
           gh pr merge "$pr_url" --merge
-          
       - name: Create PR from Minor to Master
         if: env.BRANCH_TYPE == 'minor'
         id: create_minor_to_master_pr
@@ -163,10 +158,9 @@ jobs:
             --head "$branch_name" \
             --reviewer "jessesquires" \
             --json url --jq '.url')
-
-          # Post the PR link to Google Chat
-          curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Created PR: $pr_url\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
-      
+          
+          # Post PR link to Google Chat
+          curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull Request created: $pr_url\"}" ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
       - name: Wait for PR approval and merge (Minor to Master)
         if: steps.create_minor_to_master_pr.outcome == 'success' && env.BRANCH_TYPE == 'minor'
         env:
@@ -188,13 +182,11 @@ jobs:
           done
           # Merge the PR after approval
           gh pr merge "$pr_url" --merge
-          
       - name: Notify Google Chat on Success
         if: success()
         run: |
           curl -X POST -H 'Content-Type: application/json' --data '{"text": "Sync branches job succeeded."}' ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
-      
       - name: Notify Google Chat on Failure
         if: failure()
         run: |
-          curl -X POST -H 'Content-Type: application/json' --data '{"text": "Sync branches job failed."}' ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+          echo "Failure notification is not needed; detailed conflict messages are already sent."
