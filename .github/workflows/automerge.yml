@@ -118,7 +118,7 @@ jobs:
             --head "$branch_name" )
           
           echo "PR URL: $pr_url"
-          curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+          curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created from HF to Minor: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
 
       - name: Create PR from Minor to Master
         if: env.BRANCH_TYPE == 'minor'
@@ -136,26 +136,45 @@ jobs:
             --head "$branch_name" )
           
           echo "PR URL: $pr_url"
-          curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+          curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created from Minor to Master: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
 
-      - name: Check PR Status
-        uses: jwalton/gh-find-current-pr@master
-        id: findPr
-        with:
-          state: open
+      - name: Check PR Status for HF to Minor
+        if: env.BRANCH_TYPE == 'hf'
+        id: check_hf_to_minor_pr_status
+        run: |
+          pr_number=$(gh pr list --state open --head ${{ github.repository }} | grep "Merge $branch_name into $latest_minor_branch" | awk '{print $1}')
+          echo "PR Number for HF to Minor: $pr_number"
+          if [ -n "$pr_number" ]; then
+            status=$(gh pr view $pr_number --json state -q ".state")
+            echo "PR Status: $status"
+            echo "PR_NUMBER=$pr_number" >> $GITHUB_ENV
+            echo "PR_STATUS=$status" >> $GITHUB_ENV
+          fi
 
-      - name: Check if PR is Merged
-        if: success() && steps.findPr.outputs.number
-        run: echo "Your PR is ${PR}"
-        env:
-          PR: ${{ steps.findPr.outputs.pr }}
+      - name: Check PR Status for Minor to Master
+        if: env.BRANCH_TYPE == 'minor'
+        id: check_minor_to_master_pr_status
+        run: |
+          pr_number=$(gh pr list --state open --head ${{ github.repository }} | grep "Merge $branch_name into master" | awk '{print $1}')
+          echo "PR Number for Minor to Master: $pr_number"
+          if [ -n "$pr_number" ]; then
+            status=$(gh pr view $pr_number --json state -q ".state")
+            echo "PR Status: $status"
+            echo "PR_NUMBER=$pr_number" >> $GITHUB_ENV
+            echo "PR_STATUS=$status" >> $GITHUB_ENV
+          fi
 
-      - name: Notify Google Chat on Success
-        if: success() && steps.findPr.outputs.number == ''
+      - name: Notify Google Chat on HF to Minor PR Merged
+        if: env.BRANCH_TYPE == 'hf' && env.PR_STATUS == 'merged'
+        run: |
+          curl -X POST -H 'Content-Type: application/json' --data '{"text": "HF into Minor branch merged."}' "$GOOGLE_CHAT_WEBHOOK_URL"
+
+      - name: Notify Google Chat on Minor to Master PR Merged
+        if: env.BRANCH_TYPE == 'minor' && env.PR_STATUS == 'merged'
+        run: |
+          curl -X POST -H 'Content-Type: application/json' --data '{"text": "Minor into Master branch merged."}' "$GOOGLE_CHAT_WEBHOOK_URL"
+
+      - name: Notify Google Chat on All Commits Merged
+        if: success()
         run: |
           curl -X POST -H 'Content-Type: application/json' --data '{"text": "Successfully merged HF into Minor into Master."}' "$GOOGLE_CHAT_WEBHOOK_URL"
-
-      - name: Notify Google Chat on Failure
-        if: failure()
-        run: |
-          echo "Failure notification is not needed; detailed conflict messages are already sent."
