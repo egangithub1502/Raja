@@ -134,18 +134,60 @@ jobs:
           
           echo "PR URL: $pr_url"
           curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-      - name: Check PR Status
-        uses: jwalton/gh-find-current-pr@master
-        id: findPr
+      - name: Wait for HF to Minor PR Merge
+        if: env.PR_TYPE == 'hf_to_minor'
+        uses: actions/github-script@v6
         with:
-          state: merged
-
+          script: |
+            const prNumber = process.env.PR_NUMBER;
+            if (!prNumber) {
+              console.error('PR number is missing');
+              process.exit(1);
+            }
+            
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            
+            if (pr.state === 'closed' && pr.merged) {
+              await github.rest.repos.createDispatchEvent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                event_type: 'hf_minor_merged'
+              });
+            }
+      - name: Wait for Minor to Master PR Merge
+        if: env.PR_TYPE == 'minor_to_master'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const prNumber = process.env.PR_NUMBER;
+            if (!prNumber) {
+              console.error('PR number is missing');
+              process.exit(1);
+            }
+            
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            
+            if (pr.state === 'closed' && pr.merged) {
+              await github.rest.repos.createDispatchEvent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                event_type: 'minor_master_merged'
+              });
+            }
       - name: Notify Google Chat on HF to Minor Merge
-        if: env.PR_TYPE == 'hf_to_minor' && success()
+        if: github.event_name == 'repository_dispatch' && github.event.action == 'hf_minor_merged'
         run: |
           curl -X POST -H 'Content-Type: application/json' --data '{"text": "Successfully merged HF into Minor."}' "$GOOGLE_CHAT_WEBHOOK_URL"
       - name: Notify Google Chat on Minor to Master Merge
-        if: env.PR_TYPE == 'minor_to_master' && success()
+        if: github.event_name == 'repository_dispatch' && github.event.action == 'minor_master_merged'
         run: |
           curl -X POST -H 'Content-Type: application/json' --data '{"text": "Successfully merged Minor into Master."}' "$GOOGLE_CHAT_WEBHOOK_URL"
       - name: Notify Google Chat on Failure
