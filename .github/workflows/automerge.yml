@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - '*'
+  repository_dispatch:
+    types: [hf_minor_merged, minor_master_merged]
 
 jobs:
   branch-sync:
@@ -25,6 +27,7 @@ jobs:
           git config --global user.email "$COMMITTER_EMAIL"
           
           echo "Configured git with user.name=$COMMITTER_NAME and user.email=$COMMITTER_EMAIL"
+
       - name: Check if direct commit to master
         id: check_direct_commit
         run: |
@@ -36,6 +39,7 @@ jobs:
           else
             echo "DIRECT_COMMIT=false" >> $GITHUB_ENV
           fi
+
       - name: Determine branch type
         id: determine_branches
         run: |
@@ -54,6 +58,7 @@ jobs:
           esac
           
           echo "Branch Type: $BRANCH_TYPE"
+
       - name: Fetch and merge branches based on type
         if: env.DIRECT_COMMIT == 'false'
         run: |
@@ -101,6 +106,7 @@ jobs:
             echo "PR_TYPE=minor_to_master" >> $GITHUB_ENV
             echo "PR_URL=$(gh pr list --state open --head $branch_name --base master --json url --jq '.[0].url')" >> $GITHUB_ENV
           fi
+
       - name: Create PR from HF to Minor
         if: env.BRANCH_TYPE == 'hf'
         id: create_hf_to_minor_pr
@@ -119,6 +125,7 @@ jobs:
           
           echo "PR URL: $pr_url"
           curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+
       - name: Create PR from Minor to Master
         if: env.BRANCH_TYPE == 'minor'
         id: create_minor_to_master_pr
@@ -136,6 +143,7 @@ jobs:
           
           echo "PR URL: $pr_url"
           curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+
       - name: Wait for PR Merge and Notify
         if: env.PR_TYPE == 'hf_to_minor'
         uses: actions/github-script@v6
@@ -167,6 +175,7 @@ jobs:
                 await new Promise(resolve => setTimeout(resolve, 60000)); // Wait for 1 minute
               }
             }
+
       - name: Wait for Minor to Master PR Merge and Notify
         if: env.PR_TYPE == 'minor_to_master'
         uses: actions/github-script@v6
@@ -198,11 +207,15 @@ jobs:
                 await new Promise(resolve => setTimeout(resolve, 60000)); // Wait for 1 minute
               }
             }
+
       - name: Notify Google Chat on HF to Minor Merge
         if: github.event_name == 'repository_dispatch' && github.event.action == 'hf_minor_merged'
         run: |
+          echo "Notifying Google Chat on HF to Minor Merge"
           curl -X POST -H 'Content-Type: application/json' --data '{"text": "Successfully merged HF into Minor."}' "$GOOGLE_CHAT_WEBHOOK_URL"
+
       - name: Notify Google Chat on Minor to Master Merge
         if: github.event_name == 'repository_dispatch' && github.event.action == 'minor_master_merged'
         run: |
+          echo "Notifying Google Chat on Minor to Master Merge"
           curl -X POST -H 'Content-Type: application/json' --data '{"text": "Successfully merged Minor into Master."}' "$GOOGLE_CHAT_WEBHOOK_URL"
