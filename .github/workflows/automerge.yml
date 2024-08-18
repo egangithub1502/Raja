@@ -44,23 +44,18 @@ jobs:
           
           case "$branch_name" in
             profit_dep_hf_*)
-              echo "BRANCH_TYPE=hf" >> $GITHUB_ENV
+              BRANCH_TYPE="hf"
               ;;
             profit_dep_minor_*)
-              echo "BRANCH_TYPE=minor" >> $GITHUB_ENV
+              BRANCH_TYPE="minor"
               ;;
             *)
-              echo "BRANCH_TYPE=none" >> $GITHUB_ENV
+              BRANCH_TYPE="none"
               ;;
           esac
           
           echo "Branch Type: $BRANCH_TYPE"
-      - name: Fetch and merge branches based on type
-        if: env.DIRECT_COMMIT == 'false'
-        run: |
-          git fetch origin
-          branch_name="${GITHUB_REF#refs/heads/}"
-          BRANCH_TYPE="${{ steps.determine_branches.outputs.BRANCH_TYPE }}"
+
           
           if [ "$BRANCH_TYPE" == "hf" ]; then
             latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
