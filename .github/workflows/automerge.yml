@@ -50,7 +50,6 @@ jobs:
           else
             echo "BRANCH_TYPE=none" >> $GITHUB_ENV
           fi
-
           # Debug output to verify the branch type
           echo "Branch Type: ${{ env.BRANCH_TYPE }}"
 
@@ -80,6 +79,7 @@ jobs:
             fi
             git commit -m "Merge $branch_name into $latest_minor_branch"
             git push origin $latest_minor_branch
+
           elif [ "$BRANCH_TYPE" == "minor" ]; then
             git checkout master
             git merge --no-commit --no-ff origin/$branch_name || true
@@ -96,7 +96,6 @@ jobs:
             fi
             git commit -m "Merge $branch_name into master"
             git push origin master
-          fi
 
       - name: Create PR from HF to Minor
         if: env.BRANCH_TYPE == 'hf'
