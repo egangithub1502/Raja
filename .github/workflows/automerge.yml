@@ -55,12 +55,7 @@ jobs:
           esac
           
           echo "Branch Type: $BRANCH_TYPE"
-      - name: Fetch and merge branches based on type
-        if: env.DIRECT_COMMIT == 'false'
-        run: |
-          git fetch origin
-          branch_name="${GITHUB_REF#refs/heads/}"
-          BRANCH_TYPE="${{ steps.determine_branches.outputs.BRANCH_TYPE }}"
+
           
           if [ "$BRANCH_TYPE" == "hf" ]; then
             latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
