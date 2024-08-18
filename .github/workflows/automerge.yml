@@ -42,6 +42,8 @@ jobs:
       - name: Determine branch type
         id: determine_branches
         run: |
+          git fetch origin
+
           branch_name="${GITHUB_REF#refs/heads/}"
           
           case "$branch_name" in
