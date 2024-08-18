@@ -25,6 +25,7 @@ jobs:
           git config --global user.email "$COMMITTER_EMAIL"
           
           echo "Configured git with user.name=$COMMITTER_NAME and user.email=$COMMITTER_EMAIL"
+
       - name: Check if direct commit to master
         id: check_direct_commit
         run: |
@@ -36,6 +37,7 @@ jobs:
           else
             echo "DIRECT_COMMIT=false" >> $GITHUB_ENV
           fi
+
       - name: Determine branch type
         id: determine_branches
         run: |
@@ -54,6 +56,7 @@ jobs:
           esac
           
           echo "Branch Type: $BRANCH_TYPE"
+
       - name: Fetch and merge branches based on type
         if: env.DIRECT_COMMIT == 'false'
         run: |
@@ -97,6 +100,7 @@ jobs:
             git commit -m "Merge $branch_name into master"
             git push origin master
           fi
+
       - name: Create PR from HF to Minor
         if: env.BRANCH_TYPE == 'hf'
         id: create_hf_to_minor_pr
@@ -115,6 +119,28 @@ jobs:
           
           echo "PR URL: $pr_url"
           curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+
+      - name: Wait for HF to Minor PR merge
+        if: env.BRANCH_TYPE == 'hf'
+        id: wait_for_hf_to_minor_pr
+        run: |
+          pr_url=${{ steps.create_hf_to_minor_pr.outputs.pr_url }}
+          pr_number=$(basename "$pr_url")
+          
+          echo "Waiting for PR #$pr_number to be merged..."
+          
+          while true; do
+            pr_status=$(gh pr view "$pr_number" --json state -q ".state")
+            if [ "$pr_status" == "MERGED" ]; then
+              curl -X POST -H 'Content-Type: application/json' --data '{"text": "HF into Minor merged. Now proceeding to create PR from Minor to Master."}' "$GOOGLE_CHAT_WEBHOOK_URL"
+              break
+            elif [ "$pr_status" == "CLOSED" ] || [ "$pr_status" == "DRAFT" ]; then
+              echo "PR #$pr_number is not merged yet. Exiting."
+              exit 1
+            fi
+            sleep 30
+          done
+
       - name: Create PR from Minor to Master
         if: env.BRANCH_TYPE == 'minor'
         id: create_minor_to_master_pr
@@ -132,22 +158,28 @@ jobs:
           
           echo "PR URL: $pr_url"
           curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-      - name: Check PR Status
-        uses: jwalton/gh-find-current-pr@master
-        id: findPr
-        with:
-          state: open
-
-      - name: Check if PR is Merged
-        if: success() && steps.findPr.outputs.number
-        run: echo "Your PR is ${PR}"
-        env:
-          PR: ${{ steps.findPr.outputs.pr }}
-
-      - name: Notify Google Chat on Success
-        if: success() && steps.findPr.outputs.number == ''
+      
+      - name: Wait for Minor to Master PR merge
+        if: env.BRANCH_TYPE == 'minor'
+        id: wait_for_minor_to_master_pr
         run: |
-          curl -X POST -H 'Content-Type: application/json' --data '{"text": "Successfully merged HF into Minor into Master."}' "$GOOGLE_CHAT_WEBHOOK_URL"
+          pr_url=${{ steps.create_minor_to_master_pr.outputs.pr_url }}
+          pr_number=$(basename "$pr_url")
+          
+          echo "Waiting for PR #$pr_number to be merged..."
+          
+          while true; do
+            pr_status=$(gh pr view "$pr_number" --json state -q ".state")
+            if [ "$pr_status" == "MERGED" ]; then
+              curl -X POST -H 'Content-Type: application/json' --data '{"text": "Minor and master merged."}' "$GOOGLE_CHAT_WEBHOOK_URL"
+              break
+            elif [ "$pr_status" == "CLOSED" ] || [ "$pr_status" == "DRAFT" ]; then
+              echo "PR #$pr_number is not merged yet. Exiting."
+              exit 1
+            fi
+            sleep 30
+          done
+
       - name: Notify Google Chat on Failure
         if: failure()
         run: |
