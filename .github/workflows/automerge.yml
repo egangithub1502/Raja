@@ -59,18 +59,16 @@ jobs:
           esac
     
           echo "Branch Type: $BRANCH_TYPE"
-    
+          
           if [ "$BRANCH_TYPE" == "hf" ]; then
             latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
             echo "Latest minor branch: $latest_minor_branch"
             
+            git fetch --all
             git checkout $latest_minor_branch
             git merge --no-commit --no-ff origin/$branch_name || true
             
-            # Debug information
-            git status
-            git diff --name-only --diff-filter=U
-            
+            # Check for conflicts
             if git ls-files -u | grep -q .; then
               echo "Merge conflict detected."
               conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
@@ -81,16 +79,26 @@ jobs:
               
               exit 1
             fi
+
+            # Commit merge if no conflicts
             git commit -m "Merge $branch_name into $latest_minor_branch"
             git push origin $latest_minor_branch
+            
+            # Create PR if no commits are found
+            commit_count=$(git rev-list --count ${branch_name} ^${latest_minor_branch})
+            if [ "$commit_count" -eq 0 ]; then
+              echo "No new commits between $branch_name and $latest_minor_branch."
+              echo "SKIP_PR=true" >> $GITHUB_ENV
+            else
+              echo "New commits detected between $branch_name and $latest_minor_branch."
+              echo "SKIP_PR=false" >> $GITHUB_ENV
+            fi
+
           elif [ "$BRANCH_TYPE" == "minor" ]; then
             git checkout master
             git merge --no-commit --no-ff origin/$branch_name || true
             
-            # Debug information
-            git status
-            git diff --name-only --diff-filter=U
-            
+            # Check for conflicts
             if git ls-files -u | grep -q .; then
               echo "Merge conflict detected."
               conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
@@ -101,29 +109,10 @@ jobs:
               
               exit 1
             fi
+
+            # Commit merge if no conflicts
             git commit -m "Merge $branch_name into master"
             git push origin master
-          fi
-
-      - name: Check for changes between HF and Minor branches
-        if: env.BRANCH_TYPE == 'hf'
-        id: check_changes
-        run: |
-          branch_name=${GITHUB_REF#refs/heads/}
-          latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
-          
-          # Fetch all branches
-          git fetch --all
-          
-          # Check if there are commits in HF that are not in Minor
-          commit_count=$(git rev-list --count ${branch_name} ^${latest_minor_branch})
-          
-          if [ "$commit_count" -eq 0 ]; then
-            echo "No new commits between $branch_name and $latest_minor_branch."
-            echo "SKIP_PR=true" >> $GITHUB_ENV
-          else
-            echo "New commits detected between $branch_name and $latest_minor_branch."
-            echo "SKIP_PR=false" >> $GITHUB_ENV
           fi
 
       - name: Create PR from HF to Minor
@@ -145,7 +134,7 @@ jobs:
           curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
 
       - name: Wait for HF to Minor PR merge
-        if: env.BRANCH_TYPE == 'hf'
+        if: env.BRANCH_TYPE == 'hf' && env.SKIP_PR != 'true'
         id: wait_for_hf_to_minor_pr
         run: |
           pr_url=${{ env.pr_url }}
@@ -181,7 +170,7 @@ jobs:
           echo "PR URL: $pr_url"
           echo "pr_url=$pr_url" >> $GITHUB_ENV
           curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-      
+
       - name: Wait for Minor to Master PR merge
         if: env.BRANCH_TYPE == 'minor'
         id: wait_for_minor_to_master_pr
@@ -194,7 +183,7 @@ jobs:
           while true; do
             pr_status=$(gh pr view "$pr_number" --json state -q ".state")
             if [ "$pr_status" == "MERGED" ]; then
-              curl -X POST -H 'Content-Type: application/json' --data '{"text": "Successfully Minor and master merged."}' "$GOOGLE_CHAT_WEBHOOK_URL"
+              curl -X POST -H 'Content-Type: application/json' --data '{"text": "Minor into Master merged."}' "$GOOGLE_CHAT_WEBHOOK_URL"
               break
             elif [ "$pr_status" == "CLOSED" ] || [ "$pr_status" == "DRAFT" ]; then
               echo "PR #$pr_number is not merged yet. Exiting."
@@ -202,8 +191,3 @@ jobs:
             fi
             sleep 30
           done
-
-      - name: Handle direct commits to master
-        if: env.DIRECT_COMMIT == 'true'
-        run: |
-          echo "Direct commit to master detected. Skipping further actions."
