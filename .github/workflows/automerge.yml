@@ -118,7 +118,16 @@ jobs:
             --head "$branch_name" )
           
           echo "PR URL: $pr_url"
+          echo "PR_NUMBER=$(echo $pr_url | grep -o '[0-9]\+$')" >> $GITHUB_ENV
           curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+      - name: Wait for HF to Minor PR Merge
+        if: env.BRANCH_TYPE == 'hf'
+        run: |
+          pr_number=${{ env.PR_NUMBER }}
+          while [[ "$(gh pr view $pr_number --json merged --jq '.merged')" != "true" ]]; do
+            echo "Waiting for PR #$pr_number to be merged..."
+            sleep 30
+          done
 
       - name: Create PR from Minor to Master
         if: env.BRANCH_TYPE == 'minor'
@@ -136,18 +145,18 @@ jobs:
             --head "$branch_name" )
           
           echo "PR URL: $pr_url"
+          echo "PR_NUMBER=$(echo $pr_url | grep -o '[0-9]\+$')" >> $GITHUB_ENV
           curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+      - name: Wait for Minor to Master PR Merge
+        if: env.BRANCH_TYPE == 'minor'
+        run: |
+          pr_number=${{ env.PR_NUMBER }}
+          while [[ "$(gh pr view $pr_number --json merged --jq '.merged')" != "true" ]]; do
+            echo "Waiting for PR #$pr_number to be merged..."
+            sleep 30
+          done
 
-      - name: Notify Google Chat on Success
-        if: success()
+      - name: Final Merge Notification
+        if: env.BRANCH_TYPE == 'minor' && success()
         run: |
-          curl -X POST -H 'Content-Type: application/json' --data '{"text": "Sync branches job succeeded."}' "$GOOGLE_CHAT_WEBHOOK_URL"
-
-      - name: Notify Google Chat on Failure
-        if: failure()
-        run: |
-          echo "Failure notification is not needed; detailed conflict messages are already sent."
-      - name: Notify on Successful Merge to Master
-        if: success() && env.BRANCH_TYPE == 'minor'
-        run: |
-          curl -X POST -H 'Content-Type: application/json' --data '{"text": "We merged HF into minor Into master successfully."}' "$GOOGLE_CHAT_WEBHOOK_URL"
+          curl -X POST -H 'Content-Type: application/json' --data '{"text": "Successfully merged HF into Minor into Master."}' "$GOOGLE_CHAT_WEBHOOK_URL"
