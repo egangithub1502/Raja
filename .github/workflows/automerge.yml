@@ -41,34 +41,32 @@ jobs:
         id: determine_branches
         run: |
           branch_name="${GITHUB_REF#refs/heads/}"
-          
+    
+          echo "Branch name: $branch_name"
+
           case "$branch_name" in
             profit_dep_hf_*)
-              echo "BRANCH_TYPE=hf" >> $GITHUB_ENV
+              BRANCH_TYPE="hf"
               ;;
             profit_dep_minor_*)
-              echo "BRANCH_TYPE=minor" >> $GITHUB_ENV
+              BRANCH_TYPE="minor"
               ;;
             *)
-              echo "BRANCH_TYPE=none" >> $GITHUB_ENV
+              BRANCH_TYPE="none"
               ;;
           esac
-          
+    
           echo "Branch Type: $BRANCH_TYPE"
-      - name: Fetch and merge branches based on type
-        if: env.DIRECT_COMMIT == 'false'
-        run: |
-          git fetch origin
-          branch_name="${GITHUB_REF#refs/heads/}"
-          BRANCH_TYPE="${{ steps.determine_branches.outputs.BRANCH_TYPE }}"
           
           if [ "$BRANCH_TYPE" == "hf" ]; then
             latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
             echo "Latest minor branch: $latest_minor_branch"
             
+            git fetch --all
             git checkout $latest_minor_branch
             git merge --no-commit --no-ff origin/$branch_name || true
             
+            # Check for conflicts
             if git ls-files -u | grep -q .; then
               echo "Merge conflict detected."
               conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
@@ -79,12 +77,26 @@ jobs:
               
               exit 1
             fi
+
+            # Commit merge if no conflicts
             git commit -m "Merge $branch_name into $latest_minor_branch"
             git push origin $latest_minor_branch
+            
+            # Create PR if no commits are found
+            commit_count=$(git rev-list --count ${branch_name} ^${latest_minor_branch})
+            if [ "$commit_count" -eq 0 ]; then
+              echo "No new commits between $branch_name and $latest_minor_branch."
+              echo "SKIP_PR=true" >> $GITHUB_ENV
+            else
+              echo "New commits detected between $branch_name and $latest_minor_branch."
+              echo "SKIP_PR=false" >> $GITHUB_ENV
+            fi
+
           elif [ "$BRANCH_TYPE" == "minor" ]; then
             git checkout master
             git merge --no-commit --no-ff origin/$branch_name || true
             
+            # Check for conflicts
             if git ls-files -u | grep -q .; then
               echo "Merge conflict detected."
               conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
@@ -95,9 +107,12 @@ jobs:
               
               exit 1
             fi
+
+            # Commit merge if no conflicts
             git commit -m "Merge $branch_name into master"
             git push origin master
           fi
+
       - name: Create PR from HF to Minor
         if: env.BRANCH_TYPE == 'hf'
         id: create_hf_to_minor_pr
