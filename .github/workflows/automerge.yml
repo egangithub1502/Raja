@@ -80,8 +80,31 @@ jobs:
             fi
             git commit -m "Merge $branch_name into $latest_minor_branch"
             git push origin $latest_minor_branch
-            echo "PR_TYPE=hf_to_minor" >> $GITHUB_ENV
-            echo "PR_URL=$(gh pr list --state open --head $branch_name --base $latest_minor_branch --json url --jq '.[0].url')" >> $GITHUB_ENV
+
+            echo "Creating PR from $branch_name to $latest_minor_branch"
+            pr_url=$(gh pr create \
+              --title "Merge $branch_name into $latest_minor_branch" \
+              --body "This PR merges the changes from $branch_name into $latest_minor_branch." \
+              --base "$latest_minor_branch" \
+              --head "$branch_name" )
+            
+            echo "PR URL: $pr_url"
+            curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+
+            # Wait for PR to be merged
+            while true; do
+              pr_status=$(gh pr view $pr_url --json state -q ".state")
+              if [ "$pr_status" == "MERGED" ]; then
+                echo "PR $pr_url has been merged."
+                break
+              else
+                echo "Waiting for PR $pr_url to be merged..."
+                sleep 60
+              fi
+            done
+
+            curl -X POST -H 'Content-Type: application/json' --data '{"text": "Successfully merged HF into Minor."}' "$GOOGLE_CHAT_WEBHOOK_URL"
+
           elif [ "$BRANCH_TYPE" == "minor" ]; then
             git checkout master
             git merge --no-commit --no-ff origin/$branch_name || true
@@ -98,111 +121,27 @@ jobs:
             fi
             git commit -m "Merge $branch_name into master"
             git push origin master
-            echo "PR_TYPE=minor_to_master" >> $GITHUB_ENV
-            echo "PR_URL=$(gh pr list --state open --head $branch_name --base master --json url --jq '.[0].url')" >> $GITHUB_ENV
-          fi
-      - name: Create PR from HF to Minor
-        if: env.BRANCH_TYPE == 'hf'
-        id: create_hf_to_minor_pr
-        env:
-          GH_TOKEN: ${{ secrets.JEGANMERGE }}
-        run: |
-          branch_name=${GITHUB_REF#refs/heads/}
-          latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
-          
-          echo "Creating PR from $branch_name to $latest_minor_branch"
-          pr_url=$(gh pr create \
-            --title "Merge $branch_name into $latest_minor_branch" \
-            --body "This PR merges the changes from $branch_name into $latest_minor_branch." \
-            --base "$latest_minor_branch" \
-            --head "$branch_name" )
-          
-          echo "PR URL: $pr_url"
-          curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-      - name: Create PR from Minor to Master
-        if: env.BRANCH_TYPE == 'minor'
-        id: create_minor_to_master_pr
-        env:
-          GH_TOKEN: ${{ secrets.JEGANMERGE }}
-        run: |
-          branch_name=${GITHUB_REF#refs/heads/}
-          
-          echo "Creating PR from $branch_name to master"
-          pr_url=$(gh pr create \
-            --title "Merge $branch_name into master" \
-            --body "This PR merges the changes from $branch_name into master." \
-            --base master \
-            --head "$branch_name" )
-          
-          echo "PR URL: $pr_url"
-          curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-      - name: Wait for PR Merge and Notify
-        if: env.PR_TYPE == 'hf_to_minor'
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const prUrl = process.env.PR_URL;
-            if (!prUrl) {
-              console.error('PR URL is missing');
-              process.exit(1);
-            }
+
+            echo "Creating PR from $branch_name to master"
+            pr_url=$(gh pr create \
+              --title "Merge $branch_name into master" \
+              --body "This PR merges the changes from $branch_name into master." \
+              --base master \
+              --head "$branch_name" )
             
-            let prMerged = false;
-            while (!prMerged) {
-              const { data: pr } = await github.rest.pulls.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: prUrl.split('/').pop()
-              });
-              
-              if (pr.state === 'closed' && pr.merged) {
-                prMerged = true;
-                await github.rest.repos.createDispatchEvent({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  event_type: 'hf_minor_merged'
-                });
-              } else {
-                console.log('Waiting for PR to be merged...');
-                await new Promise(resolve => setTimeout(resolve, 60000)); // Wait for 1 minute
-              }
-            }
-      - name: Wait for Minor to Master PR Merge and Notify
-        if: env.PR_TYPE == 'minor_to_master'
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const prUrl = process.env.PR_URL;
-            if (!prUrl) {
-              console.error('PR URL is missing');
-              process.exit(1);
-            }
-            
-            let prMerged = false;
-            while (!prMerged) {
-              const { data: pr } = await github.rest.pulls.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: prUrl.split('/').pop()
-              });
-              
-              if (pr.state === 'closed' && pr.merged) {
-                prMerged = true;
-                await github.rest.repos.createDispatchEvent({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  event_type: 'minor_master_merged'
-                });
-              } else {
-                console.log('Waiting for PR to be merged...');
-                await new Promise(resolve => setTimeout(resolve, 60000)); // Wait for 1 minute
-              }
-            }
-      - name: Notify Google Chat on HF to Minor Merge
-        if: github.event_name == 'repository_dispatch' && github.event.action == 'hf_minor_merged'
-        run: |
-          curl -X POST -H 'Content-Type: application/json' --data '{"text": "Successfully merged HF into Minor."}' "$GOOGLE_CHAT_WEBHOOK_URL"
-      - name: Notify Google Chat on Minor to Master Merge
-        if: github.event_name == 'repository_dispatch' && github.event.action == 'minor_master_merged'
-        run: |
-          curl -X POST -H 'Content-Type: application/json' --data '{"text": "Successfully merged Minor into Master."}' "$GOOGLE_CHAT_WEBHOOK_URL"
+            echo "PR URL: $pr_url"
+            curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+
+            # Wait for PR to be merged
+            while true; do
+              pr_status=$(gh pr view $pr_url --json state -q ".state")
+              if [ "$pr_status" == "MERGED" ]; then
+                echo "PR $pr_url has been merged."
+                break
+              else
+                echo "Waiting for PR $pr_url to be merged..."
+                sleep 60
+              fi
+            done
+
+            curl -X POST -H 'Content-Type: application/json' --data '{"text": "Successfully merged Minor into Master."}' "$GOOGLE_CHAT_WEBHOOK_URL"
