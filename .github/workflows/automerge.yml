@@ -68,12 +68,11 @@ jobs:
               exit 1
             fi
             git checkout $branch_name
-
-            # Post message about upcoming PR creation
-            curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Preparing to create PR: $branch_name into $latest_minor_branch\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
           
+            # Notify that PR creation is about to start
+            curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Preparing to create PR: $branch_name into $latest_minor_branch\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+
             # Create PR from HF to Minor
-            echo "Creating PR from $branch_name to $latest_minor_branch"
             pr_url=$(gh pr create \
               --title "Merge $branch_name into $latest_minor_branch" \
               --body "This PR merges the changes from $branch_name into $latest_minor_branch." \
@@ -101,12 +100,11 @@ jobs:
               exit 1
             fi
             git checkout $branch_name
-
-            # Post message about upcoming PR creation
-            curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Preparing to create PR: $branch_name into master\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
             
+            # Notify that PR creation is about to start
+            curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Preparing to create PR: $branch_name into master\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+
             # Create PR from Minor to Master
-            echo "Creating PR from $branch_name to master"
             pr_url=$(gh pr create \
               --title "Merge $branch_name into master" \
               --body "This PR merges the changes from $branch_name into master." \
@@ -131,7 +129,8 @@ jobs:
             pr_status=$(gh pr view "$pr_number" --json state -q ".state")
             echo "Current PR status: $pr_status"
             if [ "$pr_status" == "MERGED" ]; then
-              curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"HF into Minor merged successfully: $branch_name into $latest_minor_branch\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+              curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Merged $branch_name into $latest_minor_branch up to date\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+              curl -X POST -H 'Content-Type: application/json' --data '{"text": "HF into Minor merged. Now proceeding to create PR from Minor to Master."}' "$GOOGLE_CHAT_WEBHOOK_URL"
               break
             elif [ "$pr_status" == "CLOSED" ] || [ "$pr_status" == "DRAFT" ]; then
               echo "PR #$pr_number is not merged yet or is in an unexpected state. Exiting."
@@ -153,7 +152,7 @@ jobs:
             pr_status=$(gh pr view "$pr_number" --json state -q ".state")
             echo "Current PR status: $pr_status"
             if [ "$pr_status" == "MERGED" ]; then
-              curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Successfully merged Minor into master: $branch_name into master\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+              curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Merged $branch_name into master up to date\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
               break
             elif [ "$pr_status" == "CLOSED" ] || [ "$pr_status" == "DRAFT" ]; then
               echo "PR #$pr_number is not merged yet or is in an unexpected state. Exiting."
