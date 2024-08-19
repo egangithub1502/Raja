@@ -82,7 +82,6 @@ jobs:
           # Wait for the PR to be merged
           - name: Wait for HF to Minor PR merge
             if: ${{ env.BRANCH_TYPE == 'hf' }}
-            id: wait_for_hf_to_minor_pr
             run: |
               echo "PR URL: ${{ env.pr_url }}"
               pr_url=${{ env.pr_url }}
@@ -141,7 +140,6 @@ jobs:
           # Wait for the PR to be merged
           - name: Wait for Minor to Master PR merge
             if: ${{ env.BRANCH_TYPE == 'minor' }}
-            id: wait_for_minor_to_master_pr
             run: |
               echo "PR URL: ${{ env.pr_url }}"
               pr_url=${{ env.pr_url }}
@@ -161,4 +159,3 @@ jobs:
                 fi
                 sleep 30
               done
-    shell: /usr/bin/bash -e {0}
