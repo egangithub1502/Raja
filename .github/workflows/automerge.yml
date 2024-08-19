@@ -1,39 +1,32 @@
-name: Sync branches with conflict handling
+name: Branch Sync and PR Creation
 
 on:
   push:
     branches:
-      - '*'
+      - '**'
 
 jobs:
-  branch-sync:
+  sync-and-pr:
     runs-on: ubuntu-latest
     env:
       GOOGLE_CHAT_WEBHOOK_URL: "https://chat.googleapis.com/v1/spaces/AAAAiN5o6yI/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=V37-y3Z6RgoenZeoHilnzBw9xmYPEI_O0e33MhaqvQA"
       GH_TOKEN: ${{ secrets.JEGANMERGE }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        uses: actions/checkout@v3
 
-      - name: Set up git
+      - name: Set up Git
         run: |
-          COMMITTER_NAME=$(git log -1 --pretty=format:'%an')
-          COMMITTER_EMAIL=$(git log -1 --pretty=format:'%ae')
-          
-          git config --global user.name "$COMMITTER_NAME"
-          git config --global user.email "$COMMITTER_EMAIL"
-          
-          echo "Configured git with user.name=$COMMITTER_NAME and user.email=$COMMITTER_EMAIL"
-      
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
       - name: Determine branch type
-        id: determine_branches
+        id: determine_branch
         run: |
           branch_name="${GITHUB_REF#refs/heads/}"
-    
+          
           echo "Branch name: $branch_name"
-
+          
           case "$branch_name" in
             profit_dep_hf_*)
               BRANCH_TYPE="hf"
@@ -45,122 +38,127 @@ jobs:
               BRANCH_TYPE="none"
               ;;
           esac
-    
-          echo "Branch Type: $BRANCH_TYPE"
-
-          if [ "$BRANCH_TYPE" == "hf" ]; then
-            latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
-            echo "Latest minor branch: $latest_minor_branch"
-
-            # Fetch latest changes
-            git fetch --all
-
-            # Check for conflicts
-            git checkout $latest_minor_branch
-            git merge --no-commit --no-ff origin/$branch_name || true
-            if git ls-files -u | grep -q .; then
-              echo "Merge conflict detected."
-              conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
-              committer=$(git log -1 --pretty=format:'%an')
-              
-              message="Merge conflict detected when merging HF into minor.\nConflicting files:\n$conflict_files\nLast committer: $committer"
-              curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-              exit 1
-            fi
-            git checkout $branch_name
           
-            # Notify that PR creation is about to start
-            curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Preparing to create PR: $branch_name into $latest_minor_branch\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+          echo "Branch Type: $BRANCH_TYPE"
+          echo "BRANCH_TYPE=$BRANCH_TYPE" >> $GITHUB_ENV
 
-            # Create PR from HF to Minor
-            pr_url=$(gh pr create \
-              --title "Merge $branch_name into $latest_minor_branch" \
-              --body "This PR merges the changes from $branch_name into $latest_minor_branch." \
-              --base "$latest_minor_branch" \
-              --head "$branch_name" )
+      - name: Handle HF Branch
+        if: ${{ env.BRANCH_TYPE == 'hf' }}
+        run: |
+          latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
+          echo "Latest minor branch: $latest_minor_branch"
+  
+          # Fetch latest changes
+          git fetch --all
+  
+          # Check for conflicts
+          git checkout $latest_minor_branch
+          git merge --no-commit --no-ff origin/$branch_name || true
+          if git ls-files -u | grep -q .; then
+            echo "Merge conflict detected."
+            conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
+            committer=$(git log -1 --pretty=format:'%an')
             
-            echo "PR URL: $pr_url"
-            echo "pr_url=$pr_url" >> $GITHUB_ENV
-            curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-
-            # Wait for the PR to be merged
-            - name: Wait for HF to Minor PR merge
-              if: ${{ env.BRANCH_TYPE == 'hf' }}
-              id: wait_for_hf_to_minor_pr
-              run: |
-                echo "PR URL: ${{ env.pr_url }}"
-                pr_url=${{ env.pr_url }}
-                pr_number=$(basename "$pr_url")
-                
-                echo "Waiting for PR #$pr_number to be merged..."
-                
-                while true; do
-                  pr_status=$(gh pr view "$pr_number" --json state -q ".state")
-                  echo "Current PR status: $pr_status"
-                  if [ "$pr_status" == "MERGED" ]; then
-                    curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Merged $branch_name into $latest_minor_branch up to date\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-                    curl -X POST -H 'Content-Type: application/json' --data '{"text": "HF into Minor merged. Now proceeding to create PR from Minor to Master."}' "$GOOGLE_CHAT_WEBHOOK_URL"
-                    break
-                  elif [ "$pr_status" == "CLOSED" ] || [ "$pr_status" == "DRAFT" ]; then
-                    echo "PR #$pr_number is not merged yet or is in an unexpected state. Exiting."
-                    exit 1
-                  fi
-                  sleep 30
-                done
-
-          elif [ "$BRANCH_TYPE" == "minor" ]; then
-            # Fetch latest changes
-            git fetch --all
-
-            # Check for conflicts
-            git checkout master
-            git merge --no-commit --no-ff origin/$branch_name || true
-            if git ls-files -u | grep -q .; then
-              echo "Merge conflict detected."
-              conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
-              committer=$(git log -1 --pretty=format:'%an')
-              
-              message="Merge conflict detected when merging minor into master.\nConflicting files:\n$conflict_files\nLast committer: $committer"
-              curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-              exit 1
-            fi
-            git checkout $branch_name
-            
-            # Notify that PR creation is about to start
-            curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Preparing to create PR: $branch_name into master\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-
-            # Create PR from Minor to Master
-            pr_url=$(gh pr create \
-              --title "Merge $branch_name into master" \
-              --body "This PR merges the changes from $branch_name into master." \
-              --base master \
-              --head "$branch_name" )
-            
-            echo "PR URL: $pr_url"
-            echo "pr_url=$pr_url" >> $GITHUB_ENV
-            curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-
-            # Wait for the PR to be merged
-            - name: Wait for Minor to Master PR merge
-              if: ${{ env.BRANCH_TYPE == 'minor' }}
-              id: wait_for_minor_to_master_pr
-              run: |
-                echo "PR URL: ${{ env.pr_url }}"
-                pr_url=${{ env.pr_url }}
-                pr_number=$(basename "$pr_url")
-                
-                echo "Waiting for PR #$pr_number to be merged..."
-                
-                while true; do
-                  pr_status=$(gh pr view "$pr_number" --json state -q ".state")
-                  echo "Current PR status: $pr_status"
-                  if [ "$pr_status" == "MERGED" ]; then
-                    curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Merged $branch_name into master up to date\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-                    break
-                  elif [ "$pr_status" == "CLOSED" ] || [ "$pr_status" == "DRAFT" ]; then
-                    echo "PR #$pr_number is not merged yet or is in an unexpected state. Exiting."
-                    exit 1
-                  fi
-                  sleep 30
-                done
+            message="Merge conflict detected when merging HF into minor.\nConflicting files:\n$conflict_files\nLast committer: $committer"
+            curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+            exit 1
           fi
+          git checkout $branch_name
+  
+          # Notify that PR creation is about to start
+          curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Preparing to create PR: $branch_name into $latest_minor_branch\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+  
+          # Create PR from HF to Minor
+          pr_url=$(gh pr create \
+            --title "Merge $branch_name into $latest_minor_branch" \
+            --body "This PR merges the changes from $branch_name into $latest_minor_branch." \
+            --base "$latest_minor_branch" \
+            --head "$branch_name" )
+          
+          echo "PR URL: $pr_url"
+          echo "pr_url=$pr_url" >> $GITHUB_ENV
+          curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+          
+          # Wait for the PR to be merged
+          - name: Wait for HF to Minor PR merge
+            if: ${{ env.BRANCH_TYPE == 'hf' }}
+            id: wait_for_hf_to_minor_pr
+            run: |
+              echo "PR URL: ${{ env.pr_url }}"
+              pr_url=${{ env.pr_url }}
+              pr_number=$(basename "$pr_url")
+              
+              echo "Waiting for PR #$pr_number to be merged..."
+              
+              while true; do
+                pr_status=$(gh pr view "$pr_number" --json state -q ".state")
+                echo "Current PR status: $pr_status"
+                if [ "$pr_status" == "MERGED" ]; then
+                  curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Merged $branch_name into $latest_minor_branch up to date\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+                  curl -X POST -H 'Content-Type: application/json' --data '{"text": "HF into Minor merged. Now proceeding to create PR from Minor to Master."}' "$GOOGLE_CHAT_WEBHOOK_URL"
+                  break
+                elif [ "$pr_status" == "CLOSED" ] || [ "$pr_status" == "DRAFT" ]; then
+                  echo "PR #$pr_number is not merged yet or is in an unexpected state. Exiting."
+                  exit 1
+                fi
+                sleep 30
+              done
+
+      - name: Handle Minor Branch
+        if: ${{ env.BRANCH_TYPE == 'minor' }}
+        run: |
+          # Fetch latest changes
+          git fetch --all
+  
+          # Check for conflicts
+          git checkout master
+          git merge --no-commit --no-ff origin/$branch_name || true
+          if git ls-files -u | grep -q .; then
+            echo "Merge conflict detected."
+            conflict_files=$(git diff --name-only --diff-filter=U | awk '{print " - " $0}' | tr '\n' '\n')
+            committer=$(git log -1 --pretty=format:'%an')
+            
+            message="Merge conflict detected when merging minor into master.\nConflicting files:\n$conflict_files\nLast committer: $committer"
+            curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"$message\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+            exit 1
+          fi
+          git checkout $branch_name
+          
+          # Notify that PR creation is about to start
+          curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Preparing to create PR: $branch_name into master\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+  
+          # Create PR from Minor to Master
+          pr_url=$(gh pr create \
+            --title "Merge $branch_name into master" \
+            --body "This PR merges the changes from $branch_name into master." \
+            --base master \
+            --head "$branch_name" )
+          
+          echo "PR URL: $pr_url"
+          echo "pr_url=$pr_url" >> $GITHUB_ENV
+          curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+          
+          # Wait for the PR to be merged
+          - name: Wait for Minor to Master PR merge
+            if: ${{ env.BRANCH_TYPE == 'minor' }}
+            id: wait_for_minor_to_master_pr
+            run: |
+              echo "PR URL: ${{ env.pr_url }}"
+              pr_url=${{ env.pr_url }}
+              pr_number=$(basename "$pr_url")
+              
+              echo "Waiting for PR #$pr_number to be merged..."
+              
+              while true; do
+                pr_status=$(gh pr view "$pr_number" --json state -q ".state")
+                echo "Current PR status: $pr_status"
+                if [ "$pr_status" == "MERGED" ]; then
+                  curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Merged $branch_name into master up to date\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
+                  break
+                elif [ "$pr_status" == "CLOSED" ] || [ "$pr_status" == "DRAFT" ]; then
+                  echo "PR #$pr_number is not merged yet or is in an unexpected state. Exiting."
+                  exit 1
+                fi
+                sleep 30
+              done
+    shell: /usr/bin/bash -e {0}
