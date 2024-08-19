@@ -69,10 +69,8 @@ jobs:
             fi
             git checkout $branch_name
           
-            # Notify that PR creation is about to start
-            curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Preparing to create PR: $branch_name into $latest_minor_branch\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-
             # Create PR from HF to Minor
+            echo "Preparing to create PR from $branch_name to $latest_minor_branch"
             pr_url=$(gh pr create \
               --title "Merge $branch_name into $latest_minor_branch" \
               --body "This PR merges the changes from $branch_name into $latest_minor_branch." \
@@ -101,10 +99,8 @@ jobs:
             fi
             git checkout $branch_name
             
-            # Notify that PR creation is about to start
-            curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Preparing to create PR: $branch_name into master\"}" "$GOOGLE_CHAT_WEBHOOK_URL"
-
             # Create PR from Minor to Master
+            echo "Preparing to create PR from $branch_name to master"
             pr_url=$(gh pr create \
               --title "Merge $branch_name into master" \
               --body "This PR merges the changes from $branch_name into master." \
@@ -121,7 +117,7 @@ jobs:
         id: wait_for_hf_to_minor_pr
         run: |
           pr_url=${{ env.pr_url }}
-          pr_number=$(basename "$pr_url")
+          pr_number=$(basename "$pr_url" | sed 's/[^0-9]//g')
           
           echo "Waiting for PR #$pr_number to be merged..."
           
@@ -144,7 +140,7 @@ jobs:
         id: wait_for_minor_to_master_pr
         run: |
           pr_url=${{ env.pr_url }}
-          pr_number=$(basename "$pr_url")
+          pr_number=$(basename "$pr_url" | sed 's/[^0-9]//g')
           
           echo "Waiting for PR #$pr_number to be merged..."
           
