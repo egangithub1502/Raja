@@ -123,11 +123,12 @@ jobs:
           
           while true; do
             pr_status=$(gh pr view "$pr_number" --json state -q ".state")
+            echo "Current PR status: $pr_status"
             if [ "$pr_status" == "MERGED" ]; then
               curl -X POST -H 'Content-Type: application/json' --data '{"text": "HF into Minor merged. Now proceeding to create PR from Minor to Master."}' "$GOOGLE_CHAT_WEBHOOK_URL"
               break
             elif [ "$pr_status" == "CLOSED" ] || [ "$pr_status" == "DRAFT" ]; then
-              echo "PR #$pr_number is not merged yet. Exiting."
+              echo "PR #$pr_number is not merged yet or is in an unexpected state. Exiting."
               exit 1
             fi
             sleep 30
@@ -144,11 +145,12 @@ jobs:
           
           while true; do
             pr_status=$(gh pr view "$pr_number" --json state -q ".state")
+            echo "Current PR status: $pr_status"
             if [ "$pr_status" == "MERGED" ]; then
               curl -X POST -H 'Content-Type: application/json' --data '{"text": "Successfully merged Minor and master."}' "$GOOGLE_CHAT_WEBHOOK_URL"
               break
             elif [ "$pr_status" == "CLOSED" ] || [ "$pr_status" == "DRAFT" ]; then
-              echo "PR #$pr_number is not merged yet. Exiting."
+              echo "PR #$pr_number is not merged yet or is in an unexpected state. Exiting."
               exit 1
             fi
             sleep 30
