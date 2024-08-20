@@ -50,19 +50,29 @@ jobs:
           echo "branch_name=$branch_name" >> $GITHUB_ENV
           echo "BRANCH_TYPE=$BRANCH_TYPE" >> $GITHUB_ENV
 
+      - name: Check if process is already complete
+        run: |
+          # Check if all branches have been merged to master
+          if git branch -r | grep -E 'origin/profit_dep_hf_|origin/profit_dep_minor_' | while read branch; do
+            branch_name=$(basename $branch)
+            if [ "$branch_name" != "master" ]; then
+              echo "Branches pending merge detected. Proceeding with merge process."
+              exit 0
+            fi
+          done
+          echo "No branches pending merge. Exiting."
+          exit 1
+
       - name: Create and handle PR
         run: |
           branch_name=${{ env.branch_name }}
           branch_type=${{ env.BRANCH_TYPE }}
-
           case "$branch_type" in
             hf)
               latest_minor_branch=$(git branch -r | grep 'origin/profit_dep_minor_' | sed 's/origin\///' | sort -r | head -n 1 | xargs)
               echo "Latest minor branch: $latest_minor_branch"
-
               # Fetch latest changes
               git fetch --all
-
               # Check for conflicts
               git checkout $latest_minor_branch
               git merge --no-commit --no-ff origin/$branch_name || true
@@ -81,7 +91,6 @@ jobs:
               # Notify that PR creation is about to start
               echo "Notifying Google Chat about PR creation..."
               curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Preparing to create PR: $branch_name into $latest_minor_branch\"}" "$GOOGLE_CHAT_WEBHOOK_URL" || echo "Failed to send message to Google Chat"
-
               # Create PR from HF to Minor
               pr_url=$(gh pr create \
                 --title "Merge $branch_name into $latest_minor_branch" \
@@ -91,11 +100,9 @@ jobs:
               
               echo "PR URL: $pr_url"
               echo "pr_url=$pr_url" >> $GITHUB_ENV
-
               # Notify about the created PR
               echo "Posting PR URL to Google Chat..."
               curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL" || echo "Failed to send message to Google Chat"
-
               # Wait for PR to be merged
               pr_number=$(basename "$pr_url")
               
@@ -115,14 +122,12 @@ jobs:
                 fi
                 sleep 30
               done
-
               # Exit after processing HF-to-Minor
               exit 0
               ;;
             minor)
               # Fetch latest changes
               git fetch --all
-
               # Check for conflicts
               git checkout master
               git merge --no-commit --no-ff origin/$branch_name || true
@@ -141,7 +146,6 @@ jobs:
               # Notify that PR creation is about to start
               echo "Notifying Google Chat about PR creation..."
               curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Preparing to create PR: $branch_name into master\"}" "$GOOGLE_CHAT_WEBHOOK_URL" || echo "Failed to send message to Google Chat"
-
               # Create PR from Minor to Master
               pr_url=$(gh pr create \
                 --title "Merge $branch_name into master" \
@@ -151,11 +155,9 @@ jobs:
               
               echo "PR URL: $pr_url"
               echo "pr_url=$pr_url" >> $GITHUB_ENV
-
               # Notify about the created PR
               echo "Posting PR URL to Google Chat..."
               curl -X POST -H 'Content-Type: application/json' --data "{\"text\": \"Pull request created: $pr_url\"}" "$GOOGLE_CHAT_WEBHOOK_URL" || echo "Failed to send message to Google Chat"
-
               # Wait for PR to be merged
               pr_number=$(basename "$pr_url")
               
@@ -174,7 +176,6 @@ jobs:
                 fi
                 sleep 30
               done
-
               # Exit after processing Minor-to-Master
               exit 0
               ;;
