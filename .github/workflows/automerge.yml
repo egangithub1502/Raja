@@ -115,6 +115,9 @@ jobs:
                 fi
                 sleep 30
               done
+
+              # Exit after processing HF-to-Minor
+              exit 0
               ;;
             minor)
               # Fetch latest changes
@@ -171,6 +174,9 @@ jobs:
                 fi
                 sleep 30
               done
+
+              # Exit after processing Minor-to-Master
+              exit 0
               ;;
             *)
               echo "Unexpected branch type: $branch_type. Exiting."
