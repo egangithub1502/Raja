@@ -50,19 +50,6 @@ jobs:
           echo "branch_name=$branch_name" >> $GITHUB_ENV
           echo "BRANCH_TYPE=$BRANCH_TYPE" >> $GITHUB_ENV
 
-      - name: Check if process is already complete
-        run: |
-          # Check if all branches have been merged to master
-          if git branch -r | grep -E 'origin/profit_dep_hf_|origin/profit_dep_minor_' | while read branch; do
-            branch_name=$(basename $branch)
-            if [ "$branch_name" != "master" ]; then
-              echo "Branches pending merge detected. Proceeding with merge process."
-              exit 0
-            fi
-          done
-          echo "No branches pending merge. Exiting."
-          exit 1
-
       - name: Create and handle PR
         run: |
           branch_name=${{ env.branch_name }}
