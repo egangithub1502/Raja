@@ -176,7 +176,7 @@ jobs:
               done
 
               # Exit after processing Minor-to-Master
-              exit 1
+              exit 0
               ;;
             *)
               echo "Unexpected branch type: $branch_type. Exiting."
