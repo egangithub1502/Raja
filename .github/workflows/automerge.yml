@@ -10,8 +10,24 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GOOGLE_CHAT_WEBHOOK_URL: "https://chat.googleapis.com/v1/spaces/AAAAiN5o6yI/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=V37-y3Z6RgoenZeoHilnzBw9xmYPEI_O0e33MhaqvQA"
-      GH_TOKEN: ${{ secrets.JEGANMERGE }}
+      GH_TOKEN: ${{ secrets.JEGANMERGE }}  # Set GH_TOKEN for GitHub CLI authentication
+
+    permissions:
+      issues: write
+
     steps:
+      - name: Create issue using REST API
+        run: |
+          curl --request POST \
+          --url https://api.github.com/repos/${{ github.repository }}/issues \
+          --header 'authorization: Bearer ${{ secrets.JEGANMERGE }}' \
+          --header 'content-type: application/json' \
+          --data '{
+            "title": "Automated issue for commit: ${{ github.sha }}",
+            "body": "This issue was automatically created by the GitHub Action workflow **${{ github.workflow }}**. \n\n The commit hash was: _${{ github.sha }}_."
+            }' \
+          --fail
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -156,6 +172,7 @@ jobs:
                 if [ "$pr_status" == "MERGED" ]; then
                   echo "PR merged, notifying Google Chat..."
                   curl -X POST -H 'Content-Type: application/json' --data "$(jq -n --arg text "Merged $branch_name into master up to date" '{text: $text}')" "$GOOGLE_CHAT_WEBHOOK_URL" || echo "Failed to send message to Google Chat"
+                  curl -X POST -H 'Content-Type: application/json' --data '{"text": "Minor into Master merged."}' "$GOOGLE_CHAT_WEBHOOK_URL" || echo "Failed to send message to Google Chat"
                   break
                 elif [ "$pr_status" == "CLOSED" ] || [ "$pr_status" == "DRAFT" ]; then
                   echo "PR #$pr_number is not merged yet or is in an unexpected state. Exiting."
@@ -163,11 +180,9 @@ jobs:
                 fi
                 sleep 30
               done
-              # Exit after processing Minor-to-Master
-              exit 0
               ;;
             *)
-              echo "Unexpected branch type: $branch_type. Exiting."
+              echo "No action required for this branch: $branch_name"
               exit 0
               ;;
           esac
