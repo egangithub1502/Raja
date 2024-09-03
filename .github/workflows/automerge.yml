@@ -7,10 +7,23 @@ on:
 
 jobs:
   branch-sync:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     env:
       GOOGLE_CHAT_WEBHOOK_URL: "https://chat.googleapis.com/v1/spaces/AAAAiN5o6yI/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=V37-y3Z6RgoenZeoHilnzBw9xmYPEI_O0e33MhaqvQA"
-      GH_TOKEN: ${{ secrets.JEGANMERGE }}
+      permissions:
+      issues: write
+    steps:
+      - name: Create issue using REST API
+        run: |
+          curl --request POST \
+          --url https://api.github.com/repos/${{ github.repository }}/issues \
+          --header 'authorization: Bearer ${{ secrets.JEGANMERGE }}' \
+          --header 'content-type: application/json' \
+          --data '{
+            "title": "Automated issue for commit: ${{ github.sha }}",
+            "body": "This issue was automatically created by the GitHub Action workflow **${{ github.workflow }}**. \n\n The commit hash was: _${{ github.sha }}_."
+            }' \
+          --fail
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
