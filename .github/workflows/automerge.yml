@@ -7,7 +7,7 @@ on:
 
 jobs:
   branch-sync:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     env:
       GOOGLE_CHAT_WEBHOOK_URL: "https://chat.googleapis.com/v1/spaces/AAAAiN5o6yI/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=V37-y3Z6RgoenZeoHilnzBw9xmYPEI_O0e33MhaqvQA"
     permissions:
