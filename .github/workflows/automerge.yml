@@ -130,6 +130,7 @@ jobs:
               ;;
             minor)
               # Fetch latest changes
+              sleep 30
               git fetch --all
               # Check for conflicts
               git checkout master
