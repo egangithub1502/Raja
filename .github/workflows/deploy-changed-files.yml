@@ -35,7 +35,7 @@ jobs:
           eval "$(ssh-agent -s)"
           
           # Handle the SSH private key properly
-          echo "$SSH_PRIVATE_KEY" > temp_key
+          echo "$SSH_PRIVATE_KEY" | tr -d '\r' > temp_key
           chmod 600 temp_key
           ssh-add temp_key
           rm temp_key
