@@ -1,9 +1,10 @@
 name: Deploy on Develop Merge
 
 on:
-  push:
+  pull_request:
+    types: [closed]
     branches:
-      - develop  # Trigger on pushes to the develop branch
+      - develop
 
 jobs:
   deploy:
@@ -16,15 +17,15 @@ jobs:
       - name: Get changed files
         id: get_changed_files
         run: |
-          echo "Changed files since last merge:"
+          echo "Changed files since last PR merge:"
           git fetch origin develop
 
           # Get changed files from the last commit in develop to HEAD
-          changed_files=$(git diff --name-only develop HEAD)
+          changed_files=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }})
           echo "$changed_files" > changed_files.txt
           echo "FILES=$(cat changed_files.txt)" >> $GITHUB_ENV
 
-      - name: Deploy Changed Files to Remote Server
+      - name: Deploy Changed Directories to Remote Server
         if: ${{ env.FILES != '' }}
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
@@ -37,15 +38,18 @@ jobs:
           # Fetch changed files from output
           IFS=$'\n'  # Set internal field separator to newline
           for file_to_deploy in $FILES; do
+              directory=$(dirname "$file_to_deploy")
               DATE=$(date +%F-%H-%M)
 
-              echo "Deploying $file_to_deploy to $REMOTE_HOST"
-              if ssh $REMOTE_USER@$REMOTE_HOST "[ -f '$DEPLOY_PATH/$file_to_deploy' ]"; then
-                  echo "Backing up $DEPLOY_PATH/$file_to_deploy"
-                  ssh $REMOTE_USER@$REMOTE_HOST "sudo cp -r '$DEPLOY_PATH/$file_to_deploy' '$BACKUP_PATH/$file_to_deploy-bak-$DATE'" || { echo "Backup failed"; exit 1; }
+              echo "Deploying directory $directory to $REMOTE_HOST"
+              # Check if the directory exists on the server and back it up
+              if ssh $REMOTE_USER@$REMOTE_HOST "[ -d '$DEPLOY_PATH/$directory' ]"; then
+                  echo "Backing up $DEPLOY_PATH/$directory"
+                  ssh $REMOTE_USER@$REMOTE_HOST "sudo cp -r '$DEPLOY_PATH/$directory' '$BACKUP_PATH/$directory-bak-$DATE'" || { echo "Backup failed"; exit 1; }
               fi
 
-              scp -o StrictHostKeyChecking=no "$GIT_PATH/$file_to_deploy" "$REMOTE_USER@$REMOTE_HOST:$DEPLOY_PATH/$file_to_deploy" || { echo "Deployment of $file_to_deploy failed"; exit 1; }
-              ssh $REMOTE_USER@$REMOTE_HOST "sudo chown -R www-data: '$DEPLOY_PATH/$file_to_deploy'; sudo chmod 640 '$DEPLOY_PATH/$file_to_deploy'" || { echo "Permission update failed"; exit 1; }
-              echo "$file_to_deploy deployed successfully"
+              # Copy the entire directory to the server
+              scp -o StrictHostKeyChecking=no -r "$GIT_PATH/$directory" "$REMOTE_USER@$REMOTE_HOST:$DEPLOY_PATH/$directory" || { echo "Deployment of $directory failed"; exit 1; }
+              ssh $REMOTE_USER@$REMOTE_HOST "sudo chown -R www-data: '$DEPLOY_PATH/$directory'; sudo chmod -R 640 '$DEPLOY_PATH/$directory'" || { echo "Permission update failed"; exit 1; }
+              echo "$directory deployed successfully"
           done
