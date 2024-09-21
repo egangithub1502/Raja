@@ -20,7 +20,7 @@ jobs:
           git fetch origin develop
 
           # Get changed files from the last commit in develop to HEAD
-          changed_files=$(git diff --name-only origin/develop HEAD)
+          changed_files=$(git diff --name-only develop HEAD)
           echo "$changed_files" > changed_files.txt
           echo "FILES=$(cat changed_files.txt)" >> $GITHUB_ENV
 
