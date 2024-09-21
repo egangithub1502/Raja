@@ -19,21 +19,13 @@ jobs:
           echo "Changed files since last merge:"
           git fetch origin develop
 
-          # Check if there are any commits to compare against
-          commit_count=$(git rev-list --count HEAD)
+          # Get changed files from the last commit in develop to HEAD
+          changed_files=$(git diff --name-only origin/develop HEAD)
+          echo "$changed_files" > changed_files.txt
+          echo "FILES=$(cat changed_files.txt)" >> $GITHUB_ENV
 
-          if [ "$commit_count" -lt 2 ]; then
-              echo "Not enough commits to compare; skipping changed files check."
-              echo "FILES=" >> $GITHUB_ENV  # Set FILES to an empty string
-          else
-              # Get changed files between the last commit and the previous commit
-              changed_files=$(git diff --name-only HEAD^ HEAD)
-              echo "$changed_files" > changed_files.txt
-              echo "FILES=$(cat changed_files.txt)" >> $GITHUB_ENV
-          fi
-
-      - name: Deploy Changed File to Remote Server
-        if: ${{ env.FILES != '' && env.FILES != ' ' }}  # Check if FILES is not empty
+      - name: Deploy Changed Files to Remote Server
+        if: ${{ env.FILES != '' }}
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           REMOTE_USER: ${{ secrets.REMOTE_USER }}
@@ -42,23 +34,18 @@ jobs:
           DEPLOY_PATH: "/home/jegan/www_profitokrs_com_6_4_1"
           BACKUP_PATH: "/home/jegan/profit-site-en-backup"
         run: |
-          # Fetch changed file from output
-          file_to_deploy="${{ env.FILES }}"
-          file_count=$(echo "$file_to_deploy" | wc -w)  # Count the number of files
+          # Fetch changed files from output
+          IFS=$'\n'  # Set internal field separator to newline
+          for file_to_deploy in $FILES; do
+              DATE=$(date +%F-%H-%M)
 
-          if [ "$file_count" -ne 1 ]; then
-              echo "More than one file changed or no files; skipping deployment."
-              exit 0
-          fi
+              echo "Deploying $file_to_deploy to $REMOTE_HOST"
+              if ssh $REMOTE_USER@$REMOTE_HOST "[ -f '$DEPLOY_PATH/$file_to_deploy' ]"; then
+                  echo "Backing up $DEPLOY_PATH/$file_to_deploy"
+                  ssh $REMOTE_USER@$REMOTE_HOST "sudo cp -r '$DEPLOY_PATH/$file_to_deploy' '$BACKUP_PATH/$file_to_deploy-bak-$DATE'" || { echo "Backup failed"; exit 1; }
+              fi
 
-          DATE=$(date +%F-%H-%M)
-          echo "Deploying $file_to_deploy to $REMOTE_HOST"
-
-          if ssh $REMOTE_USER@$REMOTE_HOST "[ -f '$DEPLOY_PATH/$file_to_deploy' ]"; then
-              echo "Backing up $DEPLOY_PATH/$file_to_deploy"
-              ssh $REMOTE_USER@$REMOTE_HOST "sudo cp -r '$DEPLOY_PATH/$file_to_deploy' '$BACKUP_PATH/$file_to_deploy-bak-$DATE'" || { echo "Backup failed"; exit 1; }
-          fi
-
-          scp -o StrictHostKeyChecking=no "$GIT_PATH/$file_to_deploy" "$REMOTE_USER@$REMOTE_HOST:$DEPLOY_PATH/$file_to_deploy" || { echo "Deployment of $file_to_deploy failed"; exit 1; }
-          ssh $REMOTE_USER@$REMOTE_HOST "sudo chown -R www-data: '$DEPLOY_PATH/$file_to_deploy'; sudo chmod 640 '$DEPLOY_PATH/$file_to_deploy'" || { echo "Permission update failed"; exit 1; }
-          echo "$file_to_deploy deployed successfully"
+              scp -o StrictHostKeyChecking=no "$GIT_PATH/$file_to_deploy" "$REMOTE_USER@$REMOTE_HOST:$DEPLOY_PATH/$file_to_deploy" || { echo "Deployment of $file_to_deploy failed"; exit 1; }
+              ssh $REMOTE_USER@$REMOTE_HOST "sudo chown -R www-data: '$DEPLOY_PATH/$file_to_deploy'; sudo chmod 640 '$DEPLOY_PATH/$file_to_deploy'" || { echo "Permission update failed"; exit 1; }
+              echo "$file_to_deploy deployed successfully"
+          done
