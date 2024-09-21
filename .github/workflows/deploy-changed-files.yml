@@ -17,7 +17,13 @@ jobs:
         id: get_changed_files
         run: |
           echo "Changed files since last merge:"
-          changed_files=$(git diff --name-only HEAD^ HEAD)
+          git fetch origin develop
+          # Get changed files between the last commit and the previous commit
+          if git rev-parse HEAD^1 >/dev/null 2>&1; then
+              changed_files=$(git diff --name-only HEAD^ HEAD)
+          else
+              changed_files=$(git diff --name-only HEAD~1 HEAD)  # Handle first commit case
+          fi
           echo "$changed_files" > changed_files.txt
           echo "FILES=$(cat changed_files.txt)" >> $GITHUB_ENV
 
@@ -30,14 +36,7 @@ jobs:
           DEPLOY_PATH: "/home/jegan/www_profitokrs_com_6_4_1"
           BACKUP_PATH: "/home/jegan/profit-site-en-backup"
         run: |
-          sudo apt-get install -y sshpass
-          eval "$(ssh-agent -s)"
 
-          # Handle the SSH private key properly
-          echo "$SSH_PRIVATE_KEY" | tr -d '\r' > temp_key
-          chmod 600 temp_key
-          ssh-add temp_key
-          rm temp_key
 
           # Fetch changed files from output
           var1="${{ env.FILES }}"
