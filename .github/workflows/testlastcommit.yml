@@ -1,0 +1,24 @@
+name: List Latest Files
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  list-files:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      
+      - name: List latest files merged into develop
+        run: |
+          # Fetch the merge commit information
+          git fetch --prune --unshallow
+          latest_merge_commit=$(git log -1 --merges --pretty=format:"%H")
+          
+          # List files changed in the latest merge commit
+          echo "Files changed in the latest merge commit ($latest_merge_commit):"
+          git diff-tree --no-commit-id --name-only -r $latest_merge_commit
