@@ -33,7 +33,7 @@ jobs:
           fi
 
       - name: Deploy Changed File to Remote Server
-        if: ${{ env.FILES != '' && (steps.get_changed_files.outputs.FILES | split('\n') | length) == 1 }}
+        if: ${{ env.FILES != '' && env.FILES != ' ' }}  # Check if FILES is not empty
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           REMOTE_USER: ${{ secrets.REMOTE_USER }}
@@ -44,9 +44,16 @@ jobs:
         run: |
           # Fetch changed file from output
           file_to_deploy="${{ env.FILES }}"
-          DATE=$(date +%F-%H-%M)
+          file_count=$(echo "$file_to_deploy" | wc -w)  # Count the number of files
 
+          if [ "$file_count" -ne 1 ]; then
+              echo "More than one file changed or no files; skipping deployment."
+              exit 0
+          fi
+
+          DATE=$(date +%F-%H-%M)
           echo "Deploying $file_to_deploy to $REMOTE_HOST"
+
           if ssh $REMOTE_USER@$REMOTE_HOST "[ -f '$DEPLOY_PATH/$file_to_deploy' ]"; then
               echo "Backing up $DEPLOY_PATH/$file_to_deploy"
               ssh $REMOTE_USER@$REMOTE_HOST "sudo cp -r '$DEPLOY_PATH/$file_to_deploy' '$BACKUP_PATH/$file_to_deploy-bak-$DATE'" || { echo "Backup failed"; exit 1; }
