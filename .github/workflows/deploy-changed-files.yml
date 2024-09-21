@@ -16,7 +16,7 @@ jobs:
         id: get_changed_files
         run: |
           echo "Changed files in the merge request:"
-          git fetch origin main
+          git fetch origin develop
           changed_files=$(git diff --name-only HEAD^ HEAD)
           echo "$changed_files" > changed_files.txt
           echo "::set-output name=files::$(cat changed_files.txt)"
