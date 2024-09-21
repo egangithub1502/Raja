@@ -14,14 +14,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
+      - name: Fetch all commits
+        run: |
+          git fetch origin +refs/pull/${{ github.event.pull_request.number }}/merge
+
       - name: Get changed files
         id: get_changed_files
         run: |
           echo "Changed files since last PR merge:"
+          
+          # Get the merge commit of the pull request
+          pr_commit_sha="${{ github.event.pull_request.merge_commit_sha }}"
+          
+          # Fetch the last commit in develop
           git fetch origin develop
+          last_commit_sha=$(git rev-parse origin/develop)
 
-          # Get changed files from the last commit in develop to HEAD
-          changed_files=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }})
+          # Get changed files between the last commit in develop and the PR merge commit
+          changed_files=$(git diff --name-only "$last_commit_sha" "$pr_commit_sha")
           echo "$changed_files" > changed_files.txt
           echo "FILES=$(cat changed_files.txt)" >> $GITHUB_ENV
 
