@@ -33,7 +33,12 @@ jobs:
         run: |
           sudo apt-get install -y sshpass
           eval "$(ssh-agent -s)"
-          echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+          
+          # Handle the SSH private key properly
+          echo "$SSH_PRIVATE_KEY" > temp_key
+          chmod 600 temp_key
+          ssh-add temp_key
+          rm temp_key
 
           var1=$(echo "${{ steps.get_changed_files.outputs.files }}")
           var2=$(echo "$var1" | wc -w)
