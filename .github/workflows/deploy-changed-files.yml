@@ -1,8 +1,9 @@
 name: Deploy Changed Files
 
 on:
-  pull_request:
-    types: [closed]
+  push:
+    branches:
+      - develop  # Trigger on pushes to the develop branch
 
 jobs:
   deploy:
@@ -15,9 +16,9 @@ jobs:
       - name: Get changed files
         id: get_changed_files
         run: |
-          echo "Changed files in the merge request:"
+          echo "Changed files compared to develop branch:"
           git fetch origin develop
-          changed_files=$(git diff --name-only HEAD^ HEAD)
+          changed_files=$(git diff --name-only origin/develop...HEAD)  # Use three dots to compare changes
           echo "$changed_files" > changed_files.txt
           echo "::set-output name=files::$(cat changed_files.txt)"
 
