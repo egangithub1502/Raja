@@ -1,0 +1,26 @@
+name: List Changed Files on Develop Merge
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  list-files:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout the repository
+      uses: actions/checkout@v3
+      
+    - name: Get the list of changed files
+      id: changed-files
+      run: |
+        git fetch --prune
+        echo "Changed files from the last commit:"
+        git diff --name-only HEAD^ HEAD
+
+    - name: Display changed files
+      run: |
+        echo "Changed files:"
+        echo "${{ steps.changed-files.outputs.files }}"
