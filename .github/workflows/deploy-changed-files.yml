@@ -1,13 +1,49 @@
-name: Deploy Changed Files
+name: List and Deploy Changed Files
 
 on:
   push:
     branches:
-      - develop  # Trigger on pushes to the develop branch
+      - develop
+  pull_request:
+    types: [closed]
+    branches:
+      - develop
 
 jobs:
+  list-files:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      
+      - name: List latest files merged into develop
+        id: list_files
+        run: |
+          # Fetch the merge commit information
+          git fetch --prune --unshallow
+          
+          # Check if the last commit is a merge commit
+          if [ $(git rev-parse --verify HEAD) ]; then
+            latest_merge_commit=$(git log -1 --merges --pretty=format:"%H")
+            
+            # If there's a latest merge commit, list files changed
+            if [ -n "$latest_merge_commit" ]; then
+              echo "Files changed in the latest merge commit ($latest_merge_commit):"
+              git diff-tree --no-commit-id --name-only -r $latest_merge_commit > changed_files.txt
+              echo "::set-output name=files::$(cat changed_files.txt)"
+            else
+              echo "No merge commits found."
+              echo "::set-output name=files::"
+            fi
+          else
+            echo "No commits in the current branch."
+            echo "::set-output name=files::"
+          fi
+
   deploy:
     runs-on: ubuntu-latest
+    needs: list-files  # Ensure this job runs after list-files
 
     steps:
       - name: Checkout code
@@ -16,10 +52,9 @@ jobs:
       - name: Get changed files
         id: get_changed_files
         run: |
-          echo "Changed files compared to develop branch:"
-          git fetch origin develop
-          changed_files=$(git diff --name-only origin/develop...HEAD)  # Use three dots to compare changes
-          echo "$changed_files" > changed_files.txt
+          echo "Changed files in the merge request:"
+          var1="${{ needs.list-files.outputs.files }}"
+          echo "$var1" > changed_files.txt
           echo "::set-output name=files::$(cat changed_files.txt)"
 
       - name: Deploy Changed Files to Remote Server
@@ -33,18 +68,11 @@ jobs:
         run: |
           sudo apt-get install -y sshpass
           eval "$(ssh-agent -s)"
-          
-          # Handle the SSH private key properly
-          echo "$SSH_PRIVATE_KEY" > temp_key
-          chmod 600 temp_key
-          ssh-add temp_key
-          rm temp_key
-
-          var1=$(echo "${{ steps.get_changed_files.outputs.files }}")
+          echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+          var1="${{ steps.get_changed_files.outputs.files }}"
           var2=$(echo "$var1" | wc -w)
           files1=($var1)
           DATE=$(date +%F-%H-%M)
-
           echo "Number of Files = $var2"
           echo " "
           for (( i=0; i<$var2; i++ )); do
