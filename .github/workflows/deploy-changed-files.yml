@@ -9,6 +9,8 @@ on:
 jobs:
   list-files:
     runs-on: ubuntu-latest
+    outputs:
+      changed_files: ${{ steps.check.outputs.changed_files }}  # Define output
 
     steps:
       - name: Checkout code
@@ -22,19 +24,13 @@ jobs:
       - name: Get PR number and check changed files
         id: check
         env:
-          GH_TOKEN: ${{ secrets.JEGANMERGE }}  # Set the GitHub token for gh authentication
+          GH_TOKEN: ${{ secrets.JEGANMERGE }}
         run: |
-          # Get PR number from the event
           pr_number=${{ github.event.pull_request.number }}
-          # Use GitHub CLI to fetch details of the PR
           changed_files=$(gh pr view $pr_number --json files --jq '.files[].path')
-          # Convert the list of changed files into a single line (space-separated)
           changed_files_single_line=$(echo "$changed_files" | tr '\n' ' ')
-          # Save the changed files in the environment variable
           echo "changed_files=$changed_files_single_line" >> $GITHUB_ENV
-          # Output the list of changed files for logging
-          echo "Changed files:"
-          echo "$changed_files_single_line"
+          echo "::set-output name=changed_files::$changed_files_single_line"  # Set the output
 
   deploy:
     runs-on: ubuntu-latest
@@ -47,13 +43,12 @@ jobs:
       - name: Get changed files from previous step
         id: get_changed_files
         run: |
-          # Access the environment variable set in GITHUB_ENV
-          changed_files="${{ env.changed_files }}"
+          changed_files="${{ needs.list-files.outputs.changed_files }}"  # Access output from the previous job
           echo "Changed files: $changed_files"
           echo "$changed_files" > changed_files.txt
 
       - name: Deploy Changed Files to Remote Server
-        if: success() && steps.get_changed_files.outputs.changed_files != ''  # Check for changed files correctly
+        if: success() && steps.get_changed_files.outputs.changed_files != ''  # Check for changed files
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           REMOTE_USER: ${{ secrets.REMOTE_USER }}
@@ -62,8 +57,7 @@ jobs:
           DEPLOY_PATH: "/home/jegan/www_profitokrs_com_6_4_1"
           BACKUP_PATH: "/home/jegan/profit-site-en-backup"
         run: |
-          # Retrieve changed files directly
-          changed_files="${{ env.changed_files }}"  # Correctly access it as an environment variable
+          changed_files="${{ needs.list-files.outputs.changed_files }}"  # Correctly access it as output
           files=($changed_files)
           DATE=$(date +%F-%H-%M)
           echo "Number of Files = ${#files[@]}"
