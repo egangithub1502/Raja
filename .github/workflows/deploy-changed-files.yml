@@ -26,16 +26,12 @@ jobs:
         run: |
           # Get PR number from the event
           pr_number=${{ github.event.pull_request.number }}
-
           # Use GitHub CLI to fetch details of the PR
           changed_files=$(gh pr view $pr_number --json files --jq '.files[].path')
-
           # Convert the list of changed files into a single line (space-separated)
           changed_files_single_line=$(echo "$changed_files" | tr '\n' ' ')
-
           # Save the changed files in the environment variable
           echo "changed_files=$changed_files_single_line" >> $GITHUB_ENV
-
           # Output the list of changed files for logging
           echo "Changed files:"
           echo "$changed_files_single_line"
@@ -52,11 +48,12 @@ jobs:
         id: get_changed_files
         run: |
           # Access the environment variable set in GITHUB_ENV
+          changed_files="${{ env.changed_files }}"  # Use env to access the variable
           echo "Changed files: $changed_files"
           echo "$changed_files" > changed_files.txt
 
       - name: Deploy Changed Files to Remote Server
-        if: success() && changed_files != ''  # Only run if there are changed files
+        if: success() && env.changed_files != ''  # Check for changed files correctly
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           REMOTE_USER: ${{ secrets.REMOTE_USER }}
@@ -66,7 +63,7 @@ jobs:
           BACKUP_PATH: "/home/jegan/profit-site-en-backup"
         run: |
           # Retrieve changed files directly
-          changed_files="${{ secrets.changed_files }}"  # Access it directly
+          changed_files="${{ env.changed_files }}"  # Correctly access it as an environment variable
           files=($changed_files)
           DATE=$(date +%F-%H-%M)
           echo "Number of Files = ${#files[@]}"
