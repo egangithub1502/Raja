@@ -48,12 +48,12 @@ jobs:
         id: get_changed_files
         run: |
           # Access the environment variable set in GITHUB_ENV
-          changed_files="${{ env.changed_files }}"  # Use env to access the variable
+          changed_files="${{ env.changed_files }}"
           echo "Changed files: $changed_files"
           echo "$changed_files" > changed_files.txt
 
       - name: Deploy Changed Files to Remote Server
-        if: success() && env.changed_files != ''  # Check for changed files correctly
+        if: success() && steps.get_changed_files.outputs.changed_files != ''  # Check for changed files correctly
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           REMOTE_USER: ${{ secrets.REMOTE_USER }}
