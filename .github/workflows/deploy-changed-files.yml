@@ -13,13 +13,15 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
-      
+
       - name: Install GitHub CLI
         run: |
           sudo apt-get install gh
-          
+
       - name: Get PR number and check changed files
         id: check
+        env:
+          GH_TOKEN: ${{ secrets.JEGANMERGE }}  # Set the GitHub token for gh authentication
         run: |
           # Get PR number from the event
           pr_number=${{ github.event.pull_request.number }}
@@ -33,6 +35,7 @@ jobs:
           # Output the list of changed files for logging
           echo "Changed files:"
           echo "$changed_files"
+        shell: /usr/bin/bash -e {0}
 
   deploy:
     runs-on: ubuntu-latest
