@@ -17,33 +17,30 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
       
-      - name: List latest files merged into develop
+      - name: Fetch all history
+        run: git fetch --prune --unshallow
+
+      - name: List changed files between the last two merge commits
         id: list_files
         run: |
-          # Fetch the merge commit information
-          git fetch --prune --unshallow
+          # Get the last two merge commits
+          latest_merge_commit=$(git log -1 --merges --pretty=format:"%H")
+          previous_merge_commit=$(git log -2 --merges --pretty=format:"%H" | tail -n 1)
           
-          # Check if the last commit is a merge commit
-          if [ $(git rev-parse --verify HEAD) ]; then
-            latest_merge_commit=$(git log -1 --merges --pretty=format:"%H")
-            
-            # If there's a latest merge commit, list files changed
-            if [ -n "$latest_merge_commit" ]; then
-              echo "Files changed in the latest merge commit ($latest_merge_commit):"
-              git diff-tree --no-commit-id --name-only -r $latest_merge_commit > changed_files.txt
-              echo "::set-output name=files::$(cat changed_files.txt)"
-            else
-              echo "No merge commits found."
-              echo "::set-output name=files::"
-            fi
+          if [ -n "$latest_merge_commit" ] && [ -n "$previous_merge_commit" ]; then
+            # List files changed between the last two merge commits
+            git diff --name-only $previous_merge_commit $latest_merge_commit > changed_files.txt
+            echo "Changed files:"
+            cat changed_files.txt
+            echo "files=$(cat changed_files.txt)" >> $GITHUB_ENV
           else
-            echo "No commits in the current branch."
-            echo "::set-output name=files::"
+            echo "No merge commits found."
+            echo "files=" >> $GITHUB_ENV
           fi
 
   deploy:
     runs-on: ubuntu-latest
-    needs: list-files  # Ensure this job runs after list-files
+    needs: list-files
 
     steps:
       - name: Checkout code
@@ -52,10 +49,9 @@ jobs:
       - name: Get changed files
         id: get_changed_files
         run: |
-          echo "Changed files in the merge request:"
-          var1="${{ needs.list-files.outputs.files }}"
-          echo "$var1" > changed_files.txt
-          echo "::set-output name=files::$(cat changed_files.txt)"
+          changed_files="${{ env.files }}"
+          echo "Changed files: $changed_files"
+          echo "$changed_files" > changed_files.txt
 
       - name: Deploy Changed Files to Remote Server
         env:
@@ -69,19 +65,18 @@ jobs:
           sudo apt-get install -y sshpass
           eval "$(ssh-agent -s)"
           echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
-          var1="${{ steps.get_changed_files.outputs.files }}"
-          var2=$(echo "$var1" | wc -w)
-          files1=($var1)
+          changed_files="${{ env.files }}"
+          files=($changed_files)
           DATE=$(date +%F-%H-%M)
-          echo "Number of Files = $var2"
+          echo "Number of Files = ${#files[@]}"
           echo " "
-          for (( i=0; i<$var2; i++ )); do
-              if ssh $REMOTE_USER@$REMOTE_HOST "[ -f '$DEPLOY_PATH/${files1[$i]}' ]"; then
-                  echo "Backing up $DEPLOY_PATH/${files1[$i]}"
-                  ssh $REMOTE_USER@$REMOTE_HOST "sudo cp -r '$DEPLOY_PATH/${files1[$i]}' '$BACKUP_PATH/${files1[$i]}-bak-$DATE'"
+          for file in "${files[@]}"; do
+              if ssh $REMOTE_USER@$REMOTE_HOST "[ -f '$DEPLOY_PATH/$file' ]"; then
+                  echo "Backing up $DEPLOY_PATH/$file"
+                  ssh $REMOTE_USER@$REMOTE_HOST "sudo cp -r '$DEPLOY_PATH/$file' '$BACKUP_PATH/$file-bak-$DATE'"
               fi
-              echo "Deploying ${files1[$i]} to $REMOTE_HOST"
-              scp -o StrictHostKeyChecking=no "$GIT_PATH/${files1[$i]}" "$REMOTE_USER@$REMOTE_HOST:$DEPLOY_PATH/${files1[$i]}"
-              ssh $REMOTE_USER@$REMOTE_HOST "sudo chown -R www-data: '$DEPLOY_PATH/${files1[$i]}'; sudo chmod 640 '$DEPLOY_PATH/${files1[$i]}'"
-              echo "${files1[$i]} deployed successfully"
+              echo "Deploying $file to $REMOTE_HOST"
+              scp -o StrictHostKeyChecking=no "$GIT_PATH/$file" "$REMOTE_USER@$REMOTE_HOST:$DEPLOY_PATH/$file"
+              ssh $REMOTE_USER@$REMOTE_HOST "sudo chown -R www-data: '$DEPLOY_PATH/$file'; sudo chmod 640 '$DEPLOY_PATH/$file'"
+              echo "$file deployed successfully"
           done
