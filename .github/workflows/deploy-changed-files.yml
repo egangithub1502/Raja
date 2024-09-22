@@ -16,27 +16,27 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 0  # Ensure full history is fetched
       
-      - name: Fetch all history
-        run: git fetch --prune --unshallow
+      - name: Fetch the latest commits
+        run: git fetch --prune
 
-      - name: List changed files between the last two merge commits
+      - name: List changed files from the last commit
         id: list_files
         run: |
-          # Get the last two merge commits
-          latest_merge_commit=$(git log -1 --merges --pretty=format:"%H")
-          previous_merge_commit=$(git log -2 --merges --pretty=format:"%H" | tail -n 1)
-          
-          if [ -n "$latest_merge_commit" ] && [ -n "$previous_merge_commit" ]; then
-            # List files changed between the last two merge commits
-            git diff --name-only $previous_merge_commit $latest_merge_commit > changed_files.txt
-            echo "Changed files:"
-            cat changed_files.txt
-            echo "files=$(cat changed_files.txt)" >> $GITHUB_ENV
+          # Ensure we have a previous commit to compare
+          if git rev-parse HEAD^ >/dev/null 2>&1; then
+            echo "Changed files from the last commit:"
+            git diff --name-only HEAD^ HEAD > changed_files.txt
           else
-            echo "No merge commits found."
-            echo "files=" >> $GITHUB_ENV
-          fi
+            echo "Only one commit found, listing changes from the first commit:"
+            git diff --name-only $(git rev-list --max-parents=0 HEAD) HEAD > changed_files.txt
+
+          # Output changed files for use in subsequent steps
+          echo "Changed files:"
+          cat changed_files.txt
+          echo "files=$(cat changed_files.txt)" >> $GITHUB_ENV
 
   deploy:
     runs-on: ubuntu-latest
