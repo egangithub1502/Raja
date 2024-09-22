@@ -1,9 +1,6 @@
-name: List and Deploy Changed Files
+name: List and Deploy PR Changed Files
 
 on:
-  push:
-    branches:
-      - develop
   pull_request:
     types: [closed]
     branches:
@@ -16,27 +13,26 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
-        with:
-          fetch-depth: 0  # Ensure full history is fetched
       
-      - name: Fetch the latest commits
-        run: git fetch --prune
-
-      - name: List changed files from the last commit
-        id: list_files
+      - name: Install GitHub CLI
         run: |
-          # Ensure we have a previous commit to compare
-          if git rev-parse HEAD^ >/dev/null 2>&1; then
-            echo "Changed files from the last commit:"
-            git diff --name-only HEAD^ HEAD > changed_files.txt
-          else
-            echo "Only one commit found, listing changes from the first commit:"
-            git diff --name-only $(git rev-list --max-parents=0 HEAD) HEAD > changed_files.txt
+          sudo apt-get install gh
+          
+      - name: Get PR number and check changed files
+        id: check
+        run: |
+          # Get PR number from the event
+          pr_number=${{ github.event.pull_request.number }}
 
-          # Output changed files for use in subsequent steps
+          # Use GitHub CLI to fetch details of the PR
+          changed_files=$(gh pr view $pr_number --json files --jq '.files[].path')
+
+          # Save the changed files in the environment variable
+          echo "changed_files=$changed_files" >> $GITHUB_ENV
+
+          # Output the list of changed files for logging
           echo "Changed files:"
-          cat changed_files.txt
-          echo "files=$(cat changed_files.txt)" >> $GITHUB_ENV
+          echo "$changed_files"
 
   deploy:
     runs-on: ubuntu-latest
@@ -46,10 +42,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Get changed files
+      - name: Get changed files from previous step
         id: get_changed_files
         run: |
-          changed_files="${{ env.files }}"
+          changed_files="${{ env.changed_files }}"
           echo "Changed files: $changed_files"
           echo "$changed_files" > changed_files.txt
 
@@ -65,7 +61,7 @@ jobs:
           sudo apt-get install -y sshpass
           eval "$(ssh-agent -s)"
           echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
-          changed_files="${{ env.files }}"
+          changed_files="${{ env.changed_files }}"
           files=($changed_files)
           DATE=$(date +%F-%H-%M)
           echo "Number of Files = ${#files[@]}"
