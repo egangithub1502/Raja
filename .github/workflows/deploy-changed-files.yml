@@ -69,6 +69,10 @@ jobs:
           DEPLOY_PATH: /home/***/www_profitokrs_com_6_4_1
           BACKUP_PATH: /home/***/profit-site-en-backup
         run: |
+          # Create a temporary file for the SSH key
+          echo "$SSH_PRIVATE_KEY" > private_key
+          chmod 600 private_key  # Set permissions for the private key
+          
           changed_files="${{ needs.list-files.outputs.changed_files }}"  # Correctly access it as output
           if [ -z "$changed_files" ]; then
             echo "No files to deploy."
@@ -80,15 +84,18 @@ jobs:
           echo " "
           for file in "${files[@]}"; do
               echo "Connecting to $REMOTE_HOST"
-              if ssh -v -i $SSH_PRIVATE_KEY $REMOTE_USER@$REMOTE_HOST "[ -f '$DEPLOY_PATH/$file' ]"; then
+              if ssh -v -i private_key $REMOTE_USER@$REMOTE_HOST "[ -f '$DEPLOY_PATH/$file' ]"; then
                   echo "File exists, proceeding with backup."
-                  ssh -v -i $SSH_PRIVATE_KEY $REMOTE_USER@$REMOTE_HOST "sudo cp -r '$DEPLOY_PATH/$file' '$BACKUP_PATH/$file-bak-$DATE'"
+                  ssh -v -i private_key $REMOTE_USER@$REMOTE_HOST "sudo cp -r '$DEPLOY_PATH/$file' '$BACKUP_PATH/$file-bak-$DATE'"
               else
                   echo "File does not exist or connection failed."
                   exit 1  # Exit if there's an issue
               fi
               echo "Deploying $file to $REMOTE_HOST"
-              scp -o StrictHostKeyChecking=no -i $SSH_PRIVATE_KEY "$GIT_PATH/$file" "$REMOTE_USER@$REMOTE_HOST:$DEPLOY_PATH/$file"
-              ssh -v -i $SSH_PRIVATE_KEY $REMOTE_USER@$REMOTE_HOST "sudo chown -R www-data: '$DEPLOY_PATH/$file'; sudo chmod 640 '$DEPLOY_PATH/$file'"
+              scp -o StrictHostKeyChecking=no -i private_key "$GIT_PATH/$file" "$REMOTE_USER@$REMOTE_HOST:$DEPLOY_PATH/$file"
+              ssh -v -i private_key $REMOTE_USER@$REMOTE_HOST "sudo chown -R www-data: '$DEPLOY_PATH/$file'; sudo chmod 640 '$DEPLOY_PATH/$file'"
               echo "$file deployed successfully"
           done
+          
+          # Clean up the private key file
+          rm private_key
