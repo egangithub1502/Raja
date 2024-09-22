@@ -14,9 +14,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Install GitHub CLI
-        run: |
-          sudo apt-get install gh
+      - name: Set up GitHub CLI
+        uses: actions/gh-cli@v1
 
       - name: Get PR number and check changed files
         id: check
@@ -29,12 +28,15 @@ jobs:
           # Use GitHub CLI to fetch details of the PR
           changed_files=$(gh pr view $pr_number --json files --jq '.files[].path')
 
+          # Convert the list of changed files into a single line (space-separated)
+          changed_files_single_line=$(echo "$changed_files" | tr '\n' ' ')
+
           # Save the changed files in the environment variable
-          echo "changed_files=$changed_files" >> $GITHUB_ENV
+          echo "changed_files=$changed_files_single_line" >> $GITHUB_ENV
 
           # Output the list of changed files for logging
           echo "Changed files:"
-          echo "$changed_files"
+          echo "$changed_files_single_line"
         shell: /usr/bin/bash -e {0}
 
   deploy:
@@ -53,6 +55,7 @@ jobs:
           echo "$changed_files" > changed_files.txt
 
       - name: Deploy Changed Files to Remote Server
+        if: success() && env.changed_files != ''  # Only run if there are changed files
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           REMOTE_USER: ${{ secrets.REMOTE_USER }}
@@ -61,9 +64,6 @@ jobs:
           DEPLOY_PATH: "/home/jegan/www_profitokrs_com_6_4_1"
           BACKUP_PATH: "/home/jegan/profit-site-en-backup"
         run: |
-          sudo apt-get install -y sshpass
-          eval "$(ssh-agent -s)"
-          echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
           changed_files="${{ env.changed_files }}"
           files=($changed_files)
           DATE=$(date +%F-%H-%M)
