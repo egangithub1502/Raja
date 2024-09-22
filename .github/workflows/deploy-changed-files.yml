@@ -14,8 +14,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Set up GitHub CLI
-        uses: actions/gh-cli@v1
+      - name: Install GitHub CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gh
 
       - name: Get PR number and check changed files
         id: check
