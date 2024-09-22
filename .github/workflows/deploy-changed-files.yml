@@ -24,13 +24,16 @@ jobs:
       - name: Get PR number and check changed files
         id: check
         env:
-          GH_TOKEN: ${{ secrets.JEGANMERGE }}
+          GH_TOKEN: ${{ secrets.JEGANMERGE }}  # Set the GitHub token for gh authentication
         run: |
           pr_number=${{ github.event.pull_request.number }}
           changed_files=$(gh pr view $pr_number --json files --jq '.files[].path')
           changed_files_single_line=$(echo "$changed_files" | tr '\n' ' ')
           echo "changed_files=$changed_files_single_line" >> $GITHUB_ENV
           echo "::set-output name=changed_files::$changed_files_single_line"  # Set the output
+          # Output the changed files for logging
+          echo "Changed files:"
+          echo "$changed_files_single_line"
 
   deploy:
     runs-on: ubuntu-latest
@@ -47,8 +50,17 @@ jobs:
           echo "Changed files: $changed_files"
           echo "$changed_files" > changed_files.txt
 
+      - name: Check if changed files are present
+        run: |
+          if [ -s changed_files.txt ]; then
+            echo "Changed files detected, proceeding with deployment."
+          else
+            echo "No changed files found, skipping deployment."
+            exit 0  # Exit early if no files to deploy
+          fi
+
       - name: Deploy Changed Files to Remote Server
-        if: success() && steps.get_changed_files.outputs.changed_files != ''  # Check for changed files
+        if: success() && needs.list-files.outputs.changed_files != ''  # Ensure this checks the variable correctly
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           REMOTE_USER: ${{ secrets.REMOTE_USER }}
@@ -58,6 +70,10 @@ jobs:
           BACKUP_PATH: "/home/jegan/profit-site-en-backup"
         run: |
           changed_files="${{ needs.list-files.outputs.changed_files }}"  # Correctly access it as output
+          if [ -z "$changed_files" ]; then
+            echo "No files to deploy."
+            exit 0  # Exit if there are no files to deploy
+          fi
           files=($changed_files)
           DATE=$(date +%F-%H-%M)
           echo "Number of Files = ${#files[@]}"
