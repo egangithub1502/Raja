@@ -65,9 +65,9 @@ jobs:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           REMOTE_USER: ${{ secrets.REMOTE_USER }}
           REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
-          GIT_PATH: "/home/jegan/git-rsync-en"
-          DEPLOY_PATH: "/home/jegan/www_profitokrs_com_6_4_1"
-          BACKUP_PATH: "/home/jegan/profit-site-en-backup"
+          GIT_PATH: /home/***/git-rsync-en
+          DEPLOY_PATH: /home/***/www_profitokrs_com_6_4_1
+          BACKUP_PATH: /home/***/profit-site-en-backup
         run: |
           changed_files="${{ needs.list-files.outputs.changed_files }}"  # Correctly access it as output
           if [ -z "$changed_files" ]; then
@@ -79,12 +79,16 @@ jobs:
           echo "Number of Files = ${#files[@]}"
           echo " "
           for file in "${files[@]}"; do
-              if ssh $REMOTE_USER@$REMOTE_HOST "[ -f '$DEPLOY_PATH/$file' ]"; then
-                  echo "Backing up $DEPLOY_PATH/$file"
-                  ssh $REMOTE_USER@$REMOTE_HOST "sudo cp -r '$DEPLOY_PATH/$file' '$BACKUP_PATH/$file-bak-$DATE'"
+              echo "Connecting to $REMOTE_HOST"
+              if ssh -v -i $SSH_PRIVATE_KEY $REMOTE_USER@$REMOTE_HOST "[ -f '$DEPLOY_PATH/$file' ]"; then
+                  echo "File exists, proceeding with backup."
+                  ssh -v -i $SSH_PRIVATE_KEY $REMOTE_USER@$REMOTE_HOST "sudo cp -r '$DEPLOY_PATH/$file' '$BACKUP_PATH/$file-bak-$DATE'"
+              else
+                  echo "File does not exist or connection failed."
+                  exit 1  # Exit if there's an issue
               fi
               echo "Deploying $file to $REMOTE_HOST"
-              scp -o StrictHostKeyChecking=no "$GIT_PATH/$file" "$REMOTE_USER@$REMOTE_HOST:$DEPLOY_PATH/$file"
-              ssh $REMOTE_USER@$REMOTE_HOST "sudo chown -R www-data: '$DEPLOY_PATH/$file'; sudo chmod 640 '$DEPLOY_PATH/$file'"
+              scp -o StrictHostKeyChecking=no -i $SSH_PRIVATE_KEY "$GIT_PATH/$file" "$REMOTE_USER@$REMOTE_HOST:$DEPLOY_PATH/$file"
+              ssh -v -i $SSH_PRIVATE_KEY $REMOTE_USER@$REMOTE_HOST "sudo chown -R www-data: '$DEPLOY_PATH/$file'; sudo chmod 640 '$DEPLOY_PATH/$file'"
               echo "$file deployed successfully"
           done
