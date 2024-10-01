@@ -9,6 +9,8 @@ on:
 jobs:
   list-files:
     runs-on: ubuntu-latest
+    outputs:
+      changed_files: ${{ steps.check.outputs.changed_files }}  # Define output
 
     steps:
       - name: Checkout code
@@ -24,22 +26,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.JEGANMERGE }}  # Set the GitHub token for gh authentication
         run: |
-          # Get PR number from the event
           pr_number=${{ github.event.pull_request.number }}
-
-          # Use GitHub CLI to fetch details of the PR
           changed_files=$(gh pr view $pr_number --json files --jq '.files[].path')
-
-          # Convert the list of changed files into a single line (space-separated)
           changed_files_single_line=$(echo "$changed_files" | tr '\n' ' ')
-
-          # Save the changed files in the environment variable
           echo "changed_files=$changed_files_single_line" >> $GITHUB_ENV
-
-          # Output the list of changed files for logging
+          echo "::set-output name=changed_files::$changed_files_single_line"  # Set the output
           echo "Changed files:"
           echo "$changed_files_single_line"
-        shell: /usr/bin/bash -e {0}
 
   deploy:
     runs-on: ubuntu-latest
@@ -52,12 +45,21 @@ jobs:
       - name: Get changed files from previous step
         id: get_changed_files
         run: |
-          changed_files="${{ env.changed_files }}"
+          changed_files="${{ needs.list-files.outputs.changed_files }}"  # Access output from the previous job
           echo "Changed files: $changed_files"
           echo "$changed_files" > changed_files.txt
 
+      - name: Check if changed files are present
+        run: |
+          if [ -s changed_files.txt ]; then
+            echo "Changed files detected, proceeding with deployment."
+          else
+            echo "No changed files found, skipping deployment."
+            exit 0  # Exit early if no files to deploy
+          fi
+
       - name: Deploy Changed Files to Remote Server
-        if: success() && env.changed_files != ''  # Only run if there are changed files
+        if: success() && needs.list-files.outputs.changed_files != ''  # Ensure this checks the variable correctly
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           REMOTE_USER: ${{ secrets.REMOTE_USER }}
@@ -66,18 +68,34 @@ jobs:
           DEPLOY_PATH: "/home/jegan/www_profitokrs_com_6_4_1"
           BACKUP_PATH: "/home/jegan/profit-site-en-backup"
         run: |
-          changed_files="${{ env.changed_files }}"
+          # Create a temporary file for the SSH key
+          echo "$SSH_PRIVATE_KEY" > private_key
+          chmod 600 private_key  # Set permissions for the private key
+          
+          changed_files="${{ needs.list-files.outputs.changed_files }}"  # Correctly access it as output
+          if [ -z "$changed_files" ]; then
+            echo "No files to deploy."
+            exit 0  # Exit if there are no files to deploy
+          fi
           files=($changed_files)
           DATE=$(date +%F-%H-%M)
           echo "Number of Files = ${#files[@]}"
           echo " "
           for file in "${files[@]}"; do
-              if ssh $REMOTE_USER@$REMOTE_HOST "[ -f '$DEPLOY_PATH/$file' ]"; then
-                  echo "Backing up $DEPLOY_PATH/$file"
-                  ssh $REMOTE_USER@$REMOTE_HOST "sudo cp -r '$DEPLOY_PATH/$file' '$BACKUP_PATH/$file-bak-$DATE'"
+              echo "Connecting to $REMOTE_HOST"
+              # Increase verbosity for debugging
+              if ssh -vvv -i private_key $REMOTE_USER@$REMOTE_HOST "[ -f '$DEPLOY_PATH/$file' ]"; then
+                  echo "File exists, proceeding with backup."
+                  ssh -vvv -i private_key $REMOTE_USER@$REMOTE_HOST "sudo cp -r '$DEPLOY_PATH/$file' '$BACKUP_PATH/$file-bak-$DATE'"
+              else
+                  echo "File does not exist or connection failed."
+                  exit 1  # Exit if there's an issue
               fi
               echo "Deploying $file to $REMOTE_HOST"
-              scp -o StrictHostKeyChecking=no "$GIT_PATH/$file" "$REMOTE_USER@$REMOTE_HOST:$DEPLOY_PATH/$file"
-              ssh $REMOTE_USER@$REMOTE_HOST "sudo chown -R www-data: '$DEPLOY_PATH/$file'; sudo chmod 640 '$DEPLOY_PATH/$file'"
+              scp -o StrictHostKeyChecking=no -i private_key "$GIT_PATH/$file" "$REMOTE_USER@$REMOTE_HOST:$DEPLOY_PATH/$file"
+              ssh -vvv -i private_key $REMOTE_USER@$REMOTE_HOST "sudo chown -R www-data: '$DEPLOY_PATH/$file'; sudo chmod 640 '$DEPLOY_PATH/$file'"
               echo "$file deployed successfully"
           done
+          
+          # Clean up the private key file
+          rm private_key
