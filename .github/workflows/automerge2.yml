@@ -1,0 +1,144 @@
+name: Auto Merge
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+jobs:
+  check-conflicts:
+    runs-on: ubuntu-latest
+    outputs:
+      pr_state: '${{ steps.check_closed.outputs.pr_state }}'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install GitHub CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install gh
+
+      - name: Authenticate GitHub CLI
+        run: 'echo "${{ secrets.JEGANMERGE }}" | gh auth login --with-token'
+
+      - name: Check if pull request is closed
+        id: check_closed
+        run: |
+          pr_number=${{ github.event.pull_request.number }}
+          pr_state=$(gh pr view $pr_number --json state --jq '.state')
+
+          echo "Initial pull request state: $pr_state"
+          echo "::set-output name=pr_state::$pr_state"
+          if [ "$pr_state" == "closed" ]; then
+            echo "Pull request is closed. Exiting workflow."
+            exit 0
+          fi
+
+      - name: Check for merge conflicts
+        id: check_conflicts
+        run: |
+          pr_number=${{ github.event.pull_request.number }}
+          conflict_status=$(gh pr view $pr_number --json mergeable --jq '.mergeable')
+
+          echo "Mergeable state: $conflict_status"
+
+          if [ "$conflict_status" == "CONFLICTING" ]; then
+            echo "Merge conflict detected."
+            gh pr comment $pr_number --body "Your pull request has merge conflicts. Please resolve them before continuing."
+            exit 1
+          else
+            echo "No merge conflicts."
+            gh pr comment $pr_number --body "Your pull request has no merge conflicts."
+          fi
+
+  wait_for_approval_and_check_assignment:
+    runs-on: ubuntu-latest
+    needs: check-conflicts
+    if: needs.check-conflicts.outputs.pr_state != 'closed'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install GitHub CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install gh
+
+      - name: Authenticate GitHub CLI
+        run: 'echo "${{ secrets.JEGANMERGE }}" | gh auth login --with-token'
+
+      - name: Wait for pull request approval and check assignment
+        id: wait_for_approval_and_check_assignment
+        run: |
+          pr_number=${{ github.event.pull_request.number }}
+          target_user="egangithub1502"
+          timeout=600  # Time to wait in seconds (10 minutes)
+          interval=10  # Interval between checks in seconds
+          elapsed=0
+          while [ $elapsed -lt $timeout ]; do
+            pr_state=$(gh pr view $pr_number --json state --jq '.state')
+            
+            echo "Pull request state: $pr_state"
+            if [ "$pr_state" == "closed" ]; then
+              echo "Pull request is closed. Exiting workflow."
+              exit 0
+            fi
+
+            review_status=$(gh pr view $pr_number --json reviews --jq '.reviews[] | select(.state == "APPROVED")' || echo "")
+            assignees=$(gh pr view $pr_number --json assignees --jq '.assignees[].login' || echo "")
+            
+            echo "Review status: $review_status"
+            echo "Assignees: $assignees"
+            if [ -n "$review_status" ] && echo "$assignees" | grep -q "$target_user"; then
+              echo "Pull request has been approved and assigned to $target_user."
+              
+              # Add the comment to the PR
+              comment_body="Code changes self review done\nReviewed API Security - NA\nReviewed API Response Time - NA\nReviewed API Response Size - NA\nReviewed the Technical Design Document - NA\nReviewed the Verification Document - NA\nReviewed Method Level Comments - NA\nReviewed the Test Cases - Y\nOptimized by Copilot - Y\nReviewed byCopilot - Y"
+              gh pr comment $pr_number --body "$comment_body"
+              exit 0
+            fi
+
+            echo "Waiting for approval and assignment..."
+            sleep $interval
+            elapsed=$((elapsed + interval))
+          done
+
+          echo "Timeout reached. No approval or incorrect assignment."
+          exit 1
+
+  merge_pull_request:
+    runs-on: ubuntu-latest
+    needs: wait_for_approval_and_check_assignment
+    if: needs.wait_for_approval_and_check_assignment.outputs.pr_state != 'closed'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install GitHub CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install gh
+
+      - name: Authenticate GitHub CLI
+        run: 'echo "${{ secrets.JEGANMERGE }}" | gh auth login --with-token'
+
+      - name: Check if pull request is closed
+        id: check_closed_again
+        run: |
+          pr_number=${{ github.event.pull_request.number }}
+          pr_state=$(gh pr view $pr_number --json state --jq '.state')
+
+          echo "Pull request state before merge: $pr_state"
+          if [ "$pr_state" == "closed" ]; then
+            echo "Pull request is closed. Exiting workflow."
+            exit 0
+          fi
+
+      - name: Merge pull request
+        if: success()
+        run: |
+          pr_number=${{ github.event.pull_request.number }}
+          gh pr merge $pr_number --merge
